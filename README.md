@@ -50,6 +50,21 @@ For detailed documentation, see [Demo Documentation][docs]. If you're curious
 about a specific feature, the [docs landing page][docs] can point you in the
 right direction.
 
+## Chaos Engineering & Failure Scenarios
+
+This repository includes comprehensive guides for demonstrating infrastructure failure scenarios using feature flags and load generation, with telemetry sent to Honeycomb for analysis.
+
+📋 **[View Complete Chaos Testing Index →](ChaosTesting.md)**
+
+Explore 8+ ready-to-use chaos engineering scenarios including:
+- Memory exhaustion (sudden spikes and gradual leaks)
+- JVM garbage collection thrashing
+- Disk/storage growth and IOPS pressure
+- DNS failures and capacity constraints
+- Database pressure and query degradation
+
+All scenarios require **zero code changes** and include Honeycomb queries, dashboards, and observability patterns.
+
 ## Demos featuring the Astronomy Shop
 
 We welcome any vendor to fork the project to demonstrate their services and
