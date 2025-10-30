@@ -3,6 +3,7 @@
 *.ipr
 *.iws
 *.pyc
+*.log
 .nb-gradle
 .nb-gradle-properties
 .swp

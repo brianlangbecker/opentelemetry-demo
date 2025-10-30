@@ -125,11 +125,34 @@ opentelemetry-collector:
         log_statements:
           - context: log
             statements:
-              - set(attributes["k8s.event.reason"], body["object"]["reason"])
-              - set(attributes["k8s.event.type"], body["object"]["type"])
-              - set(attributes["k8s.event.message"], body["object"]["note"])
-              - set(attributes["k8s.pod.name"], body["object"]["regarding"]["name"])
-              - set(attributes["k8s.namespace.name"], body["object"]["regarding"]["namespace"])
+              # Extract Event object fields (for Started, BackOff, etc.)
+              - set(attributes["k8s.object.kind"], body["object"]["kind"])
+              - set(attributes["k8s.event.reason"], body["object"]["reason"]) where body["object"]["kind"] == "Event"
+              - set(attributes["k8s.event.type"], body["object"]["type"]) where body["object"]["kind"] == "Event"
+              - set(attributes["k8s.event.message"], body["object"]["note"]) where body["object"]["kind"] == "Event"
+              - set(attributes["k8s.pod.name"], body["object"]["regarding"]["name"]) where body["object"]["kind"] == "Event"
+              - set(attributes["k8s.namespace.name"], body["object"]["regarding"]["namespace"]) where body["object"]["kind"] == "Event"
+              
+              # Extract Pod object fields (for OOMKilled, crashes, restarts)
+              - set(attributes["k8s.pod.name"], body["object"]["metadata"]["name"]) where body["object"]["kind"] == "Pod"
+              - set(attributes["k8s.namespace.name"], body["object"]["metadata"]["namespace"]) where body["object"]["kind"] == "Pod"
+              - set(attributes["k8s.pod.phase"], body["object"]["status"]["phase"]) where body["object"]["kind"] == "Pod"
+              
+              # Extract container termination info (OOMKilled, Error, etc.)
+              - set(attributes["k8s.container.name"], body["object"]["status"]["containerStatuses"][0]["name"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"] != nil
+              - set(attributes["k8s.container.restart_count"], body["object"]["status"]["containerStatuses"][0]["restartCount"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"] != nil
+              - set(attributes["k8s.container.ready"], body["object"]["status"]["containerStatuses"][0]["ready"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"] != nil
+              
+              # Current state
+              - set(attributes["k8s.container.state"], body["object"]["status"]["containerStatuses"][0]["state"]["waiting"]["reason"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"][0]["state"]["waiting"] != nil
+              - set(attributes["k8s.container.state"], body["object"]["status"]["containerStatuses"][0]["state"]["terminated"]["reason"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"][0]["state"]["terminated"] != nil
+              - set(attributes["k8s.container.state"], "Running") where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"][0]["state"]["running"] != nil
+              
+              # Last termination (OOMKilled shows up here!)
+              - set(attributes["k8s.container.last_terminated.reason"], body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"]["reason"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"] != nil
+              - set(attributes["k8s.container.last_terminated.exit_code"], body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"]["exitCode"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"] != nil
+              - set(attributes["k8s.container.last_terminated.message"], body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"]["message"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"] != nil
+              - set(attributes["k8s.container.last_terminated.finished_at"], body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"]["finishedAt"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"][0]["lastState"]["terminated"] != nil
     exporters:
       otlp/honeycomb:
         endpoint: api.honeycomb.io:443

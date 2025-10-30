@@ -5,9 +5,9 @@ spec:
       - name: postgresql
         resources:
           limits:
-            memory: 150Mi
+            memory: 300Mi
           requests:
-            memory: 150Mi
+            memory: 300Mi
         env:
         - name: POSTGRES_SHARED_BUFFERS
           value: "64MB"
