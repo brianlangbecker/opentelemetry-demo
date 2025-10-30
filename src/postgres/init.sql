@@ -35,3 +35,6 @@ CREATE TABLE orderitem (
 );
 
 GRANT SELECT, INSERT, UPDATE ON ALL TABLES IN SCHEMA public TO otelu;
+
+-- Database is ready for the accounting service
+-- For IOPS demo with pre-seeded data, see: postgres-seed-for-iops.md

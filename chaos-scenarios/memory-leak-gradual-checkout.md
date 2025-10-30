@@ -34,7 +34,7 @@ The same feature flag creates different failure modes depending on configuration
 ## Prerequisites
 
 - OpenTelemetry Demo running with telemetry configured to send to Honeycomb
-- Kubernetes cluster OR Docker Compose
+- Kubernetes cluster with kubectl access
 - Access to Honeycomb UI
 - FlagD UI accessible
 
@@ -522,7 +522,7 @@ kubectl rollout restart deployment checkout -n otel-demo
 
 **Check if checkouts are happening:**
 ```bash
-kubectl logs -n otel-demo -l app.kubernetes.io/name=checkout --tail=50 | grep "order placed"
+kubectl logs -n otel-demo -l app.kubernetes.io/name=checkout | grep "order placed"
 ```
 
 ### Memory Growing Too Fast

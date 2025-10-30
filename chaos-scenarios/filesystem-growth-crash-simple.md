@@ -29,7 +29,7 @@ This guide demonstrates how to observe **filesystem/disk growth** by flooding Op
 ## Prerequisites
 
 - OpenTelemetry Demo running with telemetry configured to send to Honeycomb
-- Docker and Docker Compose installed OR Kubernetes cluster
+- Kubernetes cluster with kubectl access
 - Access to Honeycomb UI
 - FlagD UI accessible
 
@@ -45,14 +45,8 @@ OpenSearch stores all logs and traces to disk. By enabling error flags and gener
 
 ### Step 1: Check Starting Size
 
-**For Kubernetes:**
 ```bash
 kubectl exec -it opensearch-0 -n otel-demo -- du -sh /usr/share/opensearch/data
-```
-
-**For Docker Compose:**
-```bash
-docker exec opensearch du -sh /usr/share/opensearch/data
 ```
 
 You'll see something like: **~150MB to 1GB** (baseline - depends on existing data)
@@ -82,14 +76,8 @@ Go to **FlagD UI** (`http://localhost:4000`):
 
 **Watch disk grow (updates every 10s):**
 
-**For Kubernetes:**
 ```bash
 watch -n 10 "kubectl exec opensearch-0 -n otel-demo -- du -sh /usr/share/opensearch/data"
-```
-
-**For Docker Compose:**
-```bash
-watch -n 10 "docker exec opensearch du -sh /usr/share/opensearch/data"
 ```
 
 Expected growth with 50 users (starting from ~760MB):
@@ -101,7 +89,6 @@ Growth rate: **~500MB-1GB per hour** with error flags enabled.
 
 **Check indices:**
 
-**For Kubernetes (exec into pod):**
 ```bash
 # List indices with sizes
 kubectl exec opensearch-0 -n otel-demo -- curl -s http://localhost:9200/_cat/indices?v
@@ -120,14 +107,8 @@ yellow open   otel-logs-2025-10-22          98234    890.5mb
 kubectl exec opensearch-0 -n otel-demo -- curl -s 'http://localhost:9200/_cat/indices?v&s=store.size:desc'
 ```
 
-**For Docker Compose:**
-```bash
-curl http://localhost:9200/_cat/indices?v
-```
-
 **Check cluster health:**
 
-**For Kubernetes:**
 ```bash
 kubectl exec opensearch-0 -n otel-demo -- curl -s http://localhost:9200/_cluster/health?pretty
 ```
@@ -153,11 +134,6 @@ kubectl exec opensearch-0 -n otel-demo -- curl -s http://localhost:9200/_cluster
   "number_of_nodes" : 1,
   "number_of_data_nodes" : 1
 }
-```
-
-**For Docker Compose:**
-```bash
-curl http://localhost:9200/_cluster/health?pretty
 ```
 
 **What to watch for:**
@@ -270,26 +246,12 @@ As disk fills, OpenSearch queries slow down.
 - Enable more error flags
 - All flags that cause failures generate verbose logs
 
-**Check log rotation isn't too aggressive:**
+### Cluster Running Out of Space
+
+**Check available space on nodes:**
 ```bash
-# Verify logging config was applied
-docker inspect checkout | grep -A 5 LogConfig
-```
-
-### Docker System Running Out of Space
-
-**Check available space:**
-```bash
-df -h /var/lib/docker
-```
-
-**Clean up:**
-```bash
-# Remove unused images/containers
-docker system prune -a
-
-# Remove volumes (careful!)
-docker volume prune
+kubectl get nodes
+kubectl describe node <node-name> | grep -A 10 "Allocated resources"
 ```
 
 ---
@@ -308,37 +270,15 @@ After completing this use case, you will have observed:
 
 ---
 
-## Comparison: This vs Code-Based Approach
-
-| Aspect | No Code Changes (This) | Code Changes (Other Guide) |
-|--------|------------------------|----------------------------|
-| **Setup Time** | 5 minutes | 30+ minutes |
-| **Code Changes** | None | Add Go code + feature flag |
-| **Rebuild Required** | No | Yes |
-| **Disk Growth Speed** | Slow (hours) | Fast (minutes) |
-| **Predictability** | Variable | Precise |
-| **Kubernetes Limits** | Works | Works better |
-| **Observability** | Docker commands | Honeycomb + Docker |
-
----
-
 ## Recommendations
 
 **For Quick Demo:**
-- Use **Method 3 (Kubernetes)** if you have K8s cluster
-- Set very low ephemeral-storage limit (100Mi)
+- Set very low ephemeral-storage limit (100Mi) on pods in Kubernetes
 - Generate moderate traffic
 - Pod eviction happens in minutes
 
-**For Docker Compose:**
-- Use **Method 1 (Log Accumulation)**
-- Modify logging config
-- Run overnight with sustained load
-- Better for long-term observation
-
 **For Realistic Scenario:**
-- Use **Method 2 (OpenSearch)**
-- Flood with telemetry data
+- Flood OpenSearch with telemetry data
 - Observe data store growth
 - Most similar to production issues
 

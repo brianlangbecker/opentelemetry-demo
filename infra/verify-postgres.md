@@ -4,20 +4,8 @@ This document provides commands to verify that PostgreSQL is actually running an
 
 ## Quick Verification Commands
 
-### 1. Check if Postgres Container is Running
+### 1. Check if Postgres Pod is Running
 
-**Docker Compose:**
-```bash
-docker ps | grep postgresql
-```
-
-**Expected output:**
-```
-CONTAINER ID   IMAGE                                    COMMAND                  CREATED       STATUS       PORTS                    NAMES
-abc123def456   ghcr.io/open-telemetry/demo:1.x-postgresql   "docker-entrypoint.s…"   5 minutes ago Up 5 minutes 0.0.0.0:5432->5432/tcp   postgresql
-```
-
-**Kubernetes:**
 ```bash
 kubectl get pod -n otel-demo | grep postgresql
 ```
@@ -32,9 +20,8 @@ postgresql-0   1/1     Running   0          10m
 
 ## 2. Verify Database Connection
 
-**Docker Compose:**
 ```bash
-docker exec postgresql psql -U root -d otel -c "SELECT version();"
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT version();"
 ```
 
 **Expected output:**
@@ -45,18 +32,12 @@ docker exec postgresql psql -U root -d otel -c "SELECT version();"
 (1 row)
 ```
 
-**Kubernetes:**
-```bash
-kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT version();"
-```
-
 ---
 
 ## 3. List All Tables (Verify Schema Created)
 
-**Docker Compose:**
 ```bash
-docker exec postgresql psql -U root -d otel -c "\dt"
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "\dt"
 ```
 
 **Expected output:**
@@ -70,18 +51,12 @@ docker exec postgresql psql -U root -d otel -c "\dt"
 (3 rows)
 ```
 
-**Kubernetes:**
-```bash
-kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "\dt"
-```
-
 ---
 
 ## 4. Check Table Row Counts (Prove Data is Being Written)
 
-**Docker Compose:**
 ```bash
-docker exec postgresql psql -U root -d otel -c "
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
 SELECT
     'order' as table_name, COUNT(*) as row_count FROM \"order\"
 UNION ALL
@@ -102,26 +77,12 @@ ORDER BY table_name;
 (3 rows)
 ```
 
-**Kubernetes:**
-```bash
-kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
-SELECT
-    'order' as table_name, COUNT(*) as row_count FROM \"order\"
-UNION ALL
-SELECT 'orderitem', COUNT(*) FROM orderitem
-UNION ALL
-SELECT 'shipping', COUNT(*) FROM shipping
-ORDER BY table_name;
-"
-```
-
 ---
 
 ## 5. View Recent Orders (Verify Active Writes)
 
-**Docker Compose:**
 ```bash
-docker exec postgresql psql -U root -d otel -c "
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
 SELECT
     o.order_id,
     COUNT(oi.product_id) as item_count,
@@ -146,31 +107,13 @@ LIMIT 10;
 ...
 ```
 
-**Kubernetes:**
-```bash
-kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
-SELECT
-    o.order_id,
-    COUNT(oi.product_id) as item_count,
-    s.city,
-    s.state
-FROM \"order\" o
-LEFT JOIN orderitem oi ON o.order_id = oi.order_id
-LEFT JOIN shipping s ON o.order_id = s.order_id
-GROUP BY o.order_id, s.city, s.state
-ORDER BY o.order_id DESC
-LIMIT 10;
-"
-```
-
 ---
 
 ## 6. Watch Real-Time Order Inserts
 
-**Docker Compose:**
 ```bash
 # Terminal 1: Watch database row count
-watch -n 2 'docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) as total_orders FROM \"order\";"'
+watch -n 2 'kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) as total_orders FROM \"order\";"'
 
 # Terminal 2: Generate load (browse demo or use Locust)
 # http://localhost:8080
@@ -181,23 +124,14 @@ watch -n 2 'docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) as t
 - Row count increases as you place orders
 - Proves accounting service is writing to database
 
-**Kubernetes:**
-```bash
-# Terminal 1: Watch database row count
-watch -n 2 'kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) as total_orders FROM \"order\";"'
-
-# Terminal 2: Generate load
-```
-
 ---
 
 ## 7. Verify Accounting Service is Connected
 
 **Check accounting service logs for database activity:**
 
-**Docker Compose:**
 ```bash
-docker logs accounting 2>&1 | grep -i "database\|postgres\|order received" | tail -20
+kubectl logs -n otel-demo -l app.kubernetes.io/name=accounting | grep -i "order received" | tail -20
 ```
 
 **Expected output:**
@@ -206,18 +140,12 @@ docker logs accounting 2>&1 | grep -i "database\|postgres\|order received" | tai
 [timestamp] info: Microsoft.EntityFrameworkCore.Database.Command[20101] Executed DbCommand (5ms)
 ```
 
-**Kubernetes:**
-```bash
-kubectl logs -n otel-demo -l app.kubernetes.io/name=accounting | grep -i "order received" | tail -20
-```
-
 ---
 
 ## 8. Check Database Connection String
 
-**Docker Compose:**
 ```bash
-docker exec accounting env | grep DB_CONNECTION_STRING
+kubectl exec -n otel-demo deployment/accounting -- env | grep DB_CONNECTION_STRING
 ```
 
 **Expected output:**
@@ -225,18 +153,12 @@ docker exec accounting env | grep DB_CONNECTION_STRING
 DB_CONNECTION_STRING=Host=postgresql;Username=otelu;Password=otelp;Database=otel
 ```
 
-**Kubernetes:**
-```bash
-kubectl exec -n otel-demo deployment/accounting -- env | grep DB_CONNECTION_STRING
-```
-
 ---
 
 ## 9. Verify Database Size Growth
 
-**Docker Compose:**
 ```bash
-docker exec postgresql psql -U root -d otel -c "
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
 SELECT
     pg_database.datname,
     pg_size_pretty(pg_database_size(pg_database.datname)) AS size
@@ -253,24 +175,12 @@ WHERE datname = 'otel';
 (1 row)
 ```
 
-**Kubernetes:**
-```bash
-kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
-SELECT
-    pg_database.datname,
-    pg_size_pretty(pg_database_size(pg_database.datname)) AS size
-FROM pg_database
-WHERE datname = 'otel';
-"
-```
-
 ---
 
 ## 10. Check pg_stat_database (I/O Metrics)
 
-**Docker Compose:**
 ```bash
-docker exec postgresql psql -U root -d otel -c "
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
 SELECT
     datname,
     numbackends as connections,
@@ -299,24 +209,6 @@ WHERE datname = 'otel';
 - `inserts > 0` - Data is being inserted
 - `cache_hits` is much higher than `disk_reads` - Database is active
 
-**Kubernetes:**
-```bash
-kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
-SELECT
-    datname,
-    numbackends as connections,
-    xact_commit as commits,
-    xact_rollback as rollbacks,
-    blks_read as disk_reads,
-    blks_hit as cache_hits,
-    tup_inserted as inserts,
-    tup_updated as updates,
-    tup_deleted as deletes
-FROM pg_stat_database
-WHERE datname = 'otel';
-"
-```
-
 ---
 
 ## 11. Test End-to-End Flow
@@ -325,7 +217,7 @@ WHERE datname = 'otel';
 
 ```bash
 # 1. Check baseline row count
-docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
 
 # 2. Place an order via the demo UI
 # Open http://localhost:8080
@@ -334,7 +226,7 @@ docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
 # 3. Wait 2-3 seconds for accounting service to process Kafka message
 
 # 4. Check row count again
-docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
 
 # Expected: Row count increased by 1
 ```
@@ -347,13 +239,13 @@ docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
 
 ```bash
 # Terminal 1: Watch Kafka messages
-docker logs kafka --tail 10 -f | grep orders
+kubectl logs -n otel-demo -l app.kubernetes.io/name=kafka --tail 10 -f | grep orders
 
 # Terminal 2: Watch accounting service processing
-docker logs accounting --tail 10 -f | grep "Order received"
+kubectl logs -n otel-demo -l app.kubernetes.io/name=accounting --tail 10 -f | grep "Order received"
 
 # Terminal 3: Watch database inserts
-watch -n 1 'docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"'
+watch -n 1 'kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"'
 
 # Terminal 4: Generate orders via Locust or UI
 # http://localhost:8089
@@ -363,9 +255,8 @@ watch -n 1 'docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM
 
 ## 13. Detailed Table Statistics
 
-**Docker Compose:**
 ```bash
-docker exec postgresql psql -U root -d otel -c "
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "
 SELECT
     schemaname,
     tablename,
@@ -408,20 +299,20 @@ kubectl logs -n otel-demo deployment/otel-collector | grep -i postgres | tail -2
 **Fastest way to prove Postgres is working:**
 
 ```bash
-# 1. Is container running?
-docker ps | grep postgresql
+# 1. Is pod running?
+kubectl get pod -n otel-demo | grep postgresql
 
 # 2. Can we connect?
-docker exec postgresql psql -U root -d otel -c "SELECT 1;"
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT 1;"
 
 # 3. Do tables exist?
-docker exec postgresql psql -U root -d otel -c "\dt"
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "\dt"
 
 # 4. Is data being written?
-docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
+kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"
 
 # 5. Watch it grow in real-time (place orders via UI)
-watch -n 2 'docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"'
+watch -n 2 'kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"'
 ```
 
 ---
@@ -432,21 +323,21 @@ watch -n 2 'docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM
 
 **Check if accounting service has DB connection:**
 ```bash
-docker logs accounting | grep "DB_CONNECTION_STRING"
+kubectl logs -n otel-demo -l app.kubernetes.io/name=accounting | grep "DB_CONNECTION_STRING"
 ```
 
 If you see warnings about null connection string, the accounting service isn't configured to use Postgres.
 
 **Check environment variable:**
 ```bash
-docker exec accounting env | grep DB_CONNECTION_STRING
+kubectl exec -n otel-demo deployment/accounting -- env | grep DB_CONNECTION_STRING
 ```
 
 ### Database Exists But Empty
 
 **Check Kafka connectivity:**
 ```bash
-docker logs accounting | grep -i kafka
+kubectl logs -n otel-demo -l app.kubernetes.io/name=accounting | grep -i kafka
 ```
 
 Accounting service needs Kafka to receive order messages.
@@ -456,7 +347,7 @@ Accounting service needs Kafka to receive order messages.
 2. Add items to cart
 3. Complete checkout
 4. Wait 5 seconds
-5. Run: `docker exec postgresql psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"`
+5. Run: `kubectl exec -n otel-demo postgresql-0 -- psql -U root -d otel -c "SELECT COUNT(*) FROM \"order\";"`
 
 ---
 

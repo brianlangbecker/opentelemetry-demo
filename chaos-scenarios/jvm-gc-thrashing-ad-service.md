@@ -30,7 +30,7 @@ This guide demonstrates how to observe **JVM garbage collection thrashing and st
 ## Prerequisites
 
 - OpenTelemetry Demo running with telemetry configured to send to Honeycomb
-- Kubernetes cluster OR Docker Compose
+- Kubernetes cluster with kubectl access
 - Access to Honeycomb UI
 - FlagD UI accessible
 
@@ -55,24 +55,12 @@ When `adManualGc` flag is enabled, each ad request triggers aggressive garbage c
 
 ### Step 1: Check Current Ad Service Status
 
-**For Kubernetes:**
-
 ```bash
 # Check pod status
 kubectl get pod -n otel-demo | grep ad
 
 # Check current memory and CPU usage
 kubectl top pod -n otel-demo | grep ad
-```
-
-**For Docker Compose:**
-
-```bash
-# Check container status
-docker ps | grep ad
-
-# Check resource usage
-docker stats ad --no-stream
 ```
 
 **Baseline:** Ad service should be using ~50-100Mi memory normally.
@@ -138,16 +126,8 @@ kubectl rollout status deployment ad -n otel-demo
 
 **Watch memory usage (updates every 10s):**
 
-**For Kubernetes:**
-
 ```bash
 watch -n 10 "kubectl top pod -n otel-demo | grep ad"
-```
-
-**For Docker Compose:**
-
-```bash
-watch -n 5 "docker stats ad --no-stream"
 ```
 
 **Expected pattern:**
@@ -165,16 +145,8 @@ TIME    MEMORY   CPU
 
 **Check logs for GC events:**
 
-**For Kubernetes:**
-
 ```bash
 kubectl logs -n otel-demo -l app.kubernetes.io/name=ad --tail=50 | grep -i "garbage collection"
-```
-
-**For Docker Compose:**
-
-```bash
-docker logs ad --tail=50 | grep -i "garbage collection"
 ```
 
 Expected log output:
@@ -521,18 +493,10 @@ TIME RANGE: Last 30 minutes
 - Death spiral: climbs to 30% → 50% → 80%+
 - When spending most time in GC, service is effectively dead
 
-### Query 11: JVM CPU Time in GC
+### Query 11: CPU Utilization During GC
 
-**Shows CPU being consumed by garbage collection.**
+**Shows CPU being consumed during garbage collection.**
 
-```
-WHERE service.name = ad
-VISUALIZE SUM(jvm.cpu.time) WHERE jvm.cpu.state = "gc"
-GROUP BY time(30s)
-TIME RANGE: Last 30 minutes
-```
-
-**Alternative (system CPU during GC):**
 ```
 WHERE k8s.pod.name STARTS_WITH ad
 VISUALIZE AVG(k8s.pod.cpu_utilization)
@@ -780,16 +744,8 @@ GROUP BY otel.status_code
 
 3. **Correlate with logs:**
 
-   **For Kubernetes:**
-
    ```bash
    kubectl logs -n otel-demo -l app.kubernetes.io/name=ad | grep "artificially triggered GCs"
-   ```
-
-   **For Docker Compose:**
-
-   ```bash
-   docker logs ad | grep "artificially triggered GCs"
    ```
 
    Match the log timestamp with the slow trace timestamp.
@@ -870,16 +826,8 @@ ACTION: Ad service memory pressure (heap filling)
 
 ### Restart Ad Service (to clear state)
 
-**For Kubernetes:**
-
 ```bash
 kubectl rollout restart deployment ad -n otel-demo
-```
-
-**For Docker Compose:**
-
-```bash
-docker compose restart ad
 ```
 
 ---
@@ -890,16 +838,8 @@ docker compose restart ad
 
 **Verify flag is enabled:**
 
-**For Kubernetes:**
-
 ```bash
 kubectl logs -n otel-demo -l app.kubernetes.io/name=ad | grep "adManualGc"
-```
-
-**For Docker Compose:**
-
-```bash
-docker logs ad | grep "adManualGc"
 ```
 
 Should see: `"Feature Flag adManualGc enabled, performing a manual gc now"`
@@ -907,11 +847,7 @@ Should see: `"Feature Flag adManualGc enabled, performing a manual gc now"`
 **Check if ads are being requested:**
 
 ```bash
-# Kubernetes
 kubectl logs -n otel-demo -l app.kubernetes.io/name=ad | grep "ad request received"
-
-# Docker Compose
-docker logs ad | grep "ad request received"
 ```
 
 Should see frequent ad requests.

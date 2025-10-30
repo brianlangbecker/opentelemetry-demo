@@ -1,0 +1,172 @@
+components:
+  loadGenerator:
+    resources:
+      limits:
+        memory: 4Gi
+        cpu: 2000m
+      requests:
+        memory: 2Gi
+        cpu: 1000m
+
+  accountingService:
+    resources:
+      limits:
+        memory: 256Mi
+      requests:
+        memory: 128Mi
+
+  postgresql:
+    resources:
+      limits:
+        memory: 300Mi
+      requests:
+        memory: 300Mi
+    # Optional: Reduce shared_buffers for IOPS pressure demo
+    # Lower cache = more disk reads = visible IOPS issues
+    # envOverrides:
+    #   - name: POSTGRES_SHARED_BUFFERS
+    #     value: "32MB"  # Default: 128MB. Use 32MB or 64MB for chaos demo
+
+  frontend:
+    envOverrides:
+      - name: PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+        value: https://otel-demo.spicy.honeydemo.io/otlp-http/v1/traces
+
+  frontend-proxy:
+    service:
+      type: NodePort
+    ingress:
+      enabled: true
+      annotations:
+        alb.ingress.kubernetes.io/scheme: internet-facing
+        alb.ingress.kubernetes.io/healthcheck-interval-seconds: '300'
+        alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
+        alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:465062709130:certificate/acd6cd1d-35fc-4f7b-8191-cefed94c9f69
+      ingressClassName: alb
+      hosts:
+        - host: otel-demo.spicy.honeydemo.io
+          paths:
+            - path: /
+              pathType: Prefix
+              port: 8080
+
+
+
+opentelemetry-collector:
+  clusterRole:
+    create: true
+    rules:
+      - apiGroups: [""]
+        resources: ["nodes/stats", "nodes/proxy"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: [""]
+        resources: ["nodes", "pods", "replicationcontrollers", "resourcequotas", "services", "events"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["apps"]
+        resources: ["daemonsets", "deployments", "replicasets", "statefulsets"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["batch"]
+        resources: ["jobs", "cronjobs"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["autoscaling"]
+        resources: ["horizontalpodautoscalers"]
+        verbs: ["get", "list", "watch"]
+      - apiGroups: ["events.k8s.io"]
+        resources: ["events"]
+        verbs: ["get", "list", "watch"]
+  extraEnvs:
+    - name: K8S_NODE_NAME
+      valueFrom:
+        fieldRef:
+          fieldPath: spec.nodeName
+  config:
+    receivers:
+      kubeletstats:
+        collection_interval: 20s
+        auth_type: "serviceAccount"
+        endpoint: "https://${env:K8S_NODE_NAME}:10250"
+        insecure_skip_verify: true
+        metric_groups:
+          - pod
+          - node
+          - container
+      k8s_cluster:
+        collection_interval: 30s
+        node_conditions_to_report: ["Ready", "MemoryPressure", "DiskPressure"]
+        allocatable_types_to_report: ["cpu", "memory"]
+        metrics:
+          k8s.container.restarts:
+            enabled: true
+          k8s.pod.phase:
+            enabled: true
+          k8s.deployment.desired:
+            enabled: true
+          k8s.deployment.available:
+            enabled: true
+      k8sobjects:
+        auth_type: serviceAccount
+        objects:
+          - name: pods
+            mode: watch
+            group: ""
+            exclude_watch_type:
+              - DELETED
+          - name: events
+            mode: watch
+            group: events.k8s.io
+            namespaces: [otel-demo]
+    processors:
+      resource/k8s_events:
+        attributes:
+          - key: honeycomb.dataset
+            value: k8s-events
+            action: upsert
+      transform/k8s_events:
+        log_statements:
+          - context: log
+            statements:
+              - set(attributes["k8s.event.reason"], body["object"]["reason"])
+              - set(attributes["k8s.event.type"], body["object"]["type"])
+              - set(attributes["k8s.event.message"], body["object"]["note"])
+              - set(attributes["k8s.pod.name"], body["object"]["regarding"]["name"])
+              - set(attributes["k8s.namespace.name"], body["object"]["regarding"]["namespace"])
+    exporters:
+      otlp/honeycomb:
+        endpoint: api.honeycomb.io:443
+        headers:
+          x-honeycomb-team: f1xvILrABDNS1T6HKFvaCB
+          x-honeycomb-dataset: opentelemetry-demo
+      otlp/honeycomb_events:
+        endpoint: api.honeycomb.io:443
+        headers:
+          x-honeycomb-team: f1xvILrABDNS1T6HKFvaCB
+          x-honeycomb-dataset: k8s-events
+    service:
+      pipelines:
+        logs:
+          exporters:
+          - otlp/honeycomb
+          - debug
+        logs/k8sevents:
+          receivers:
+          - k8sobjects
+          processors:
+          - resource/k8s_events
+          - transform/k8s_events
+          exporters:
+          - otlp/honeycomb_events
+          - debug
+        metrics:
+          receivers:
+          - spanmetrics
+          - kubeletstats
+          - k8s_cluster
+          - postgresql
+          exporters:
+          - otlp/honeycomb
+          - debug
+        traces:
+          exporters:
+          - otlp/honeycomb
+          - spanmetrics
+          - debug

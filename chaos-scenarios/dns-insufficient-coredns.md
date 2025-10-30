@@ -33,8 +33,6 @@ This guide demonstrates how to observe **DNS capacity and performance degradatio
 - Access to Honeycomb UI
 - CoreDNS running (default in most Kubernetes clusters)
 
-**Note:** This scenario is **Kubernetes-only**. Docker Compose uses Docker's internal DNS which cannot be easily scaled to demonstrate capacity issues.
-
 ---
 
 ## How It Works

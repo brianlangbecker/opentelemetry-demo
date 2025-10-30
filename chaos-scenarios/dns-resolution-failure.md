@@ -35,8 +35,6 @@ This guide demonstrates how to observe **DNS resolution failures** by stopping C
 - Access to Honeycomb UI
 - CoreDNS running (default in most Kubernetes clusters)
 
-**Note:** This scenario is **Kubernetes-only**. Docker Compose uses Docker's internal DNS which cannot be easily disabled without breaking the entire stack.
-
 ---
 
 ## How It Works

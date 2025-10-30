@@ -4,12 +4,28 @@
 
 This guide demonstrates how to observe a **memory spike leading to an OOM crash** using the OpenTelemetry Demo's checkout service (Go), with telemetry sent to Honeycomb for analysis.
 
+> ⚠️ **WARNING: Collateral Damage to Accounting Service**
+>
+> **High flag values (2000) will also crash the accounting service!**
+>
+> - Checkout creates N Kafka messages per order (where N = flag value)
+> - Accounting service (120Mi limit) tries to consume ALL messages
+> - With 2000 messages/order, accounting service OOMs in seconds
+> - **Result**: Both checkout AND accounting will crash
+>
+> **Recommendations**:
+>
+> - Use **200-500** for controlled checkout-only crashes
+> - Use **2000** if you want to demonstrate cascading failures
+> - Monitor both services: `kubectl get pods -n otel-demo | grep -E "checkout|accounting"`
+
 ### Use Case Summary
 
-- **Target Service:** `checkout` (Go microservice)
-- **Memory Limit:** 20Mi (tight constraint)
+- **Primary Target:** `checkout` (Go microservice)
+- **Secondary Impact:** `accounting` (C# microservice) - **crashes with high flag values**
+- **Memory Limits:** Checkout: 20Mi, Accounting: 120Mi
 - **Trigger Mechanism:** Feature flag (`kafkaQueueProblems`) + Load generator
-- **Observable Outcome:** Memory spike → OOM Kill → Container restart
+- **Observable Outcome:** Memory spike → OOM Kill → Container restart (both services with high values)
 - **Pattern:** Configurable growth rate (slow/medium/fast) based on flag value
 - **Monitoring:** Honeycomb UI for metrics, traces, and restart events
 
@@ -19,20 +35,25 @@ This guide demonstrates how to observe a **memory spike leading to an OOM crash*
 
 The same feature flag creates different failure modes depending on configuration:
 
-| Scenario | Target | Flag Value | Users | Observable Outcome |
-|----------|--------|------------|-------|-------------------|
-| **[Memory Spike](memory-tracking-spike-crash.md)** | Checkout service (Go) | 2000 | 50 | Fast OOM crash (this guide) |
-| **[Gradual Memory Leak](memory-leak-gradual-checkout.md)** | Checkout service (Go) | 200-300 | 25 | Gradual OOM in 10-20m |
-| **[Postgres Disk/IOPS](postgres-disk-iops-pressure.md)** | Postgres database | 2000 | 50 | Disk growth + I/O pressure |
+| Scenario                                                   | Primary Target    | Secondary Impact    | Flag Value | Users | Observable Outcome                        |
+| ---------------------------------------------------------- | ----------------- | ------------------- | ---------- | ----- | ----------------------------------------- |
+| **[Memory Spike](memory-tracking-spike-crash.md)**         | Checkout (Go)     | **Accounting (C#)** | 2000       | 50    | Fast OOM crash both services (this guide) |
+| **[Gradual Memory Leak](memory-leak-gradual-checkout.md)** | Checkout (Go)     | Accounting (C#)     | 200-300    | 25    | Gradual OOM in 10-20m                     |
+| **[Postgres Disk/IOPS](postgres-disk-iops-pressure.md)**   | Postgres database | Accounting (C#)     | 100        | 10-15 | Disk growth + I/O pressure                |
 
-**Key Difference:** This guide demonstrates **fast, sudden memory exhaustion**. Use lower flag values (100-500) for gradual leak patterns.
+**Key Differences:**
+
+- This guide demonstrates **fast, sudden memory exhaustion** in **both** checkout and accounting services
+- Use **200-500** for controlled checkout-only crashes
+- Use **2000** for cascading failure demonstration (checkout → Kafka flood → accounting crash)
+- The accounting service (120Mi) acts as a **downstream bottleneck** for high message volumes
 
 ---
 
 ## Prerequisites
 
 - OpenTelemetry Demo running with telemetry configured to send to Honeycomb
-- Docker and Docker Compose installed OR Kubernetes cluster
+- Kubernetes cluster with kubectl access
 - Access to Honeycomb UI
 - FlagD UI accessible
 
@@ -42,6 +63,8 @@ The same feature flag creates different failure modes depending on configuration
 
 When `kafkaQueueProblems` flag is enabled with high values:
 
+### Checkout Service (Primary Crash)
+
 1. **User completes checkout** in the demo application
 2. **Checkout service** receives the order request
 3. **Feature flag triggered:** Service spawns N goroutines (where N = flag value)
@@ -50,14 +73,24 @@ When `kafkaQueueProblems` flag is enabled with high values:
 6. **Memory exhaustion:** With 2000 goroutines, memory grows from ~8Mi → 20Mi in seconds
 7. **OOM Kill:** Linux kernel kills the process when it exceeds 20Mi limit
 8. **Container restart:** Kubernetes/Docker restarts the crashed container
-9. **Pattern repeats:** If flag remains enabled and traffic continues
+
+### Accounting Service (Cascading Crash with High Values)
+
+1. **Kafka topic floods** with messages from checkout (2000 messages per order)
+2. **Accounting service** (120Mi memory limit) subscribes to the Kafka topic
+3. **Consumer tries to buffer** thousands of messages in memory
+4. **Memory exhaustion:** With 2000 messages, accounting service OOMs in 1-2 seconds
+5. **OOM Kill:** Accounting service crashes (Exit Code 137)
+6. **CrashLoopBackOff:** Service repeatedly tries to start, consume messages, and crashes
+7. **Pattern continues** until flag is disabled or load stops
 
 **Growth Rate Configuration:**
-- **Slow (100-500):** Memory grows over 5-15 minutes, more gradual observation
-- **Medium (500-1000):** Memory grows over 2-5 minutes, balanced demonstration
-- **Fast (2000):** Memory grows in 60-90 seconds, dramatic crash for quick demos
 
-**Production Analog:** Simulates goroutine leaks, unbounded message queues, or connection pool exhaustion.
+- **Slow (100-200):** Checkout crashes slowly, accounting handles load
+- **Medium (200-500):** Checkout crashes faster, accounting may struggle
+- **Fast (2000):** **Both services crash** - checkout from goroutines, accounting from Kafka flood
+
+**Production Analog:** Simulates goroutine leaks, unbounded message queues, downstream service exhaustion, and cascading failures.
 
 ---
 
@@ -113,16 +146,51 @@ When `kafkaQueueProblems` flag is enabled with high values:
 
 Watch the `STATUS` column for restarts.
 
-### Step 3: Observe in Honeycomb UI
+### Step 3: Monitor Both Services (Critical!)
 
-#### A. Memory Metrics Query
+**Watch for crashes in BOTH services:**
+
+```bash
+# Monitor both checkout and accounting pods
+watch -n 2 'kubectl get pods -n otel-demo | grep -E "checkout|accounting"'
+```
+
+**Expected behavior with kafkaQueueProblems: 2000:**
+
+```
+NAME                           READY   STATUS             RESTARTS      AGE
+checkout-bc8884986-59rzz       1/1     Running            1 (2m ago)    5m   ← Crashed once, now running
+accounting-dd696b5d-fnc5h      0/1     CrashLoopBackOff   7 (30s ago)   5m   ← Repeatedly crashing!
+```
+
+**Check OOM kills:**
+
+```bash
+# Check checkout OOM events
+kubectl describe pod -n otel-demo -l app.kubernetes.io/name=checkout | grep -A 10 "Last State"
+
+# Check accounting OOM events
+kubectl describe pod -n otel-demo -l app.kubernetes.io/name=accounting | grep -A 10 "Last State"
+```
+
+**Both will show:**
+
+```
+Last State:     Terminated
+  Reason:       OOMKilled
+  Exit Code:    137
+```
+
+### Step 4: Observe in Honeycomb UI
+
+#### A. Checkout Memory Metrics Query
 
 1. Go to Honeycomb UI → Your dataset
 2. Create a new query:
    - **WHERE:** `k8s.pod.name` STARTS_WITH `checkout`
    - **Visualize:**
      - `MAX(k8s.pod.memory.working_set)` (Current memory usage)
-     - `MAX(k8s.pod.memory_limit_utilization)` (% of limit used)
+     - `MAX(k8s.container.restarts)` (Restart count)
    - **Group By:** Time (e.g., 10s intervals)
    - **Time Range:** Last 15 minutes
 3. **Run Query**
@@ -131,9 +199,42 @@ Watch the `STATUS` column for restarts.
 
 - Steady baseline ~5-8Mi
 - Sudden spike approaching 20Mi (the limit) when load starts
-- `memory_limit_utilization` approaching 1.0 (100%)
 - Drop to ~0 or low value after OOM kill
+- Restart count increments
 - Pattern repeats as container restarts
+
+#### A2. Accounting Memory Metrics Query (Cascading Failure)
+
+1. Go to Honeycomb UI → Your dataset
+2. Create a new query:
+   - **WHERE:** `k8s.pod.name` STARTS_WITH `accounting`
+   - **Visualize:**
+     - `MAX(k8s.pod.memory.working_set)` (Current memory usage)
+     - `MAX(k8s.container.restarts)` (Restart count)
+   - **Group By:** Time (e.g., 10s intervals)
+   - **TIME RANGE:** Last 15 minutes
+3. **Run Query**
+
+**Expected pattern with flag value 2000:**
+
+- Memory spikes to ~100-120Mi very quickly (1-2 seconds)
+- Crashes immediately (Exit Code 137)
+- **Restart count increases rapidly** (5, 10, 15+ restarts)
+- **CrashLoopBackOff** - service can't stabilize
+- This demonstrates the **downstream cascade effect** of Kafka message flooding
+
+#### A3. Both Services Side-by-Side (Recommended)
+
+```
+WHERE k8s.pod.name STARTS_WITH checkout OR k8s.pod.name STARTS_WITH accounting
+VISUALIZE MAX(k8s.pod.memory.working_set), MAX(k8s.container.restarts)
+GROUP BY k8s.pod.name, time(30s)
+TIME RANGE: Last 15 minutes
+```
+
+**This shows the cascading failure clearly:**
+
+- Checkout crashes → Kafka floods → Accounting crashes repeatedly
 
 #### B. Checkout Traces
 
@@ -204,15 +305,11 @@ Create a dashboard to track this scenario:
 After observing crashes in Honeycomb and logs:
 
 ```bash
-# Check if container was OOM killed
-docker inspect checkout | grep -A 5 OOMKilled
+# Check if pod was OOM killed
+kubectl describe pod -n otel-demo -l app.kubernetes.io/name=checkout | grep -A 5 "OOMKilled"
 ```
 
-Expected output:
-
-```json
-"OOMKilled": true
-```
+Expected output will show OOM kill events in the pod events section.
 
 ---
 
@@ -312,17 +409,25 @@ This shows how close you are to the limit before OOM kill occurs.
 1. Go to FlagD UI: http://localhost:4000
 2. Set `kafkaQueueProblems` back to **`off`**
 
-### Stop the Demo
+### Restart Both Services
+
+To restart both services and clear the crash loop:
 
 ```bash
-docker compose down
+# Restart checkout service
+kubectl rollout restart deployment checkout -n otel-demo
+
+# Restart accounting service (if in CrashLoopBackOff)
+kubectl rollout restart deployment accounting -n otel-demo
 ```
 
-Or to keep running but restart checkout:
+**Wait for both to stabilize:**
 
 ```bash
-docker compose restart checkout
+kubectl get pods -n otel-demo | grep -E "checkout|accounting"
 ```
+
+Both should show `Running` with `0` or `1` restart count after cleanup.
 
 ---
 
@@ -347,19 +452,19 @@ Should return: `{"value": 100}` or higher (200, 500, 1000, 2000).
 **Check Kafka is running:**
 
 ```bash
-docker ps | grep kafka
+kubectl get pod -n otel-demo | grep kafka
 ```
 
 **Verify checkouts are happening:**
 
 ```bash
-docker logs checkout | grep -i "order placed"
+kubectl logs -n otel-demo -l app.kubernetes.io/name=checkout | grep -i "order placed"
 ```
 
 **Check if flag is actually triggering:**
 
 ```bash
-docker logs checkout | grep -i "kafkaQueueProblems"
+kubectl logs -n otel-demo -l app.kubernetes.io/name=checkout | grep -i "kafkaQueueProblems"
 ```
 
 Should see: `"Warning: FeatureFlag 'kafkaQueueProblems' is activated"`
@@ -371,20 +476,46 @@ Should see: `"Warning: FeatureFlag 'kafkaQueueProblems' is activated"`
 - Ensure checkouts are actually happening (check logs)
 - Allow more time (2-3 minutes) for memory to build up
 
+### Accounting Service in CrashLoopBackOff
+
+**This is expected behavior with high flag values (2000)!**
+
+The accounting service will repeatedly crash because:
+
+1. Kafka topic is flooded with messages from checkout
+2. Accounting tries to consume all messages
+3. 120Mi memory limit is exceeded in seconds
+4. Service crashes, restarts, tries again → CrashLoopBackOff
+
+**To fix:**
+
+1. Stop the load generator (http://localhost:8089 → Stop)
+2. Disable the feature flag (http://localhost:4000 → Set kafkaQueueProblems to "off")
+3. Wait for Kafka messages to clear
+4. Accounting service will stabilize after 1-2 minutes
+
+**Or reduce the flag value:**
+
+- Use **200-500** instead of 2000 to avoid accounting service crashes
+- This targets only the checkout service
+
 ---
 
 ## Learning Outcomes
 
 After completing this use case, you will have observed:
 
-1. ✅ **Memory growth patterns** in a real microservice
-2. ✅ **Feature flag impact** on resource consumption
-3. ✅ **OOM kill behavior** in containerized environments
-4. ✅ **Service restart patterns** and crash loops
-5. ✅ **Telemetry gaps** during service crashes
-6. ✅ **Correlation between** load, feature flags, and resource exhaustion
-7. ✅ **Honeycomb queries** for infrastructure monitoring
-8. ✅ **Distributed tracing** during degraded performance
+1. ✅ **Memory growth patterns** in a real microservice (checkout)
+2. ✅ **Cascading failures** from upstream to downstream services (checkout → Kafka → accounting)
+3. ✅ **Feature flag impact** on resource consumption in **multiple services**
+4. ✅ **OOM kill behavior** in containerized environments (both checkout and accounting)
+5. ✅ **Service restart patterns** and crash loops (especially accounting's CrashLoopBackOff)
+6. ✅ **Telemetry gaps** during service crashes
+7. ✅ **Correlation between** load, feature flags, and resource exhaustion
+8. ✅ **Downstream bottlenecks** (accounting's 120Mi limit as Kafka consumer)
+9. ✅ **Honeycomb queries** for infrastructure monitoring across multiple services
+10. ✅ **Distributed tracing** during degraded performance
+11. ✅ **Message queue flooding** and its impact on consumers
 
 ---
 
@@ -397,13 +528,12 @@ After completing this use case, you will have observed:
    - Trigger on: `MAX(process.runtime.go.mem.heap_alloc) > 15000000` (15Mi)
    - Send to: Slack, PagerDuty, etc.
 
-2. **Kubernetes deployment:**
+2. **Monitor pod evictions:**
 
-   - Deploy to K8s cluster
    - Observe pod evictions and rescheduling
    - Use `kubectl top pods` alongside Honeycomb
 
-4. **SLO tracking:**
+3. **SLO tracking:**
    - Create SLI for checkout availability
    - Track error budget burn during incidents
 

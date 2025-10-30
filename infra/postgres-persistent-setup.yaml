@@ -1,0 +1,38 @@
+# PostgreSQL Persistent Storage Setup
+# Apply BEFORE Helm install to enable data persistence
+#
+# Usage:
+#   kubectl create namespace otel-demo
+#   kubectl apply -f postgres-persistent-setup.yaml
+#
+# Then install Helm chart:
+#   helm install otel-demo open-telemetry/opentelemetry-demo \
+#     -n otel-demo --values otel-demo-values.yaml
+#
+# Finally, patch PostgreSQL deployment:
+#   kubectl patch deployment postgresql -n otel-demo --patch-file postgres-patch.yaml
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: postgresql-data
+  namespace: otel-demo
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-config
+  namespace: otel-demo
+data:
+  # PostgreSQL configuration for IOPS demos
+  shared_buffers: "128MB"  # Default cache size (reduce to 32MB for chaos demo)
+  effective_cache_size: "256MB"
+
