@@ -27,29 +27,29 @@ components:
     #   - name: POSTGRES_SHARED_BUFFERS
     #     value: "32MB"  # Default: 128MB. Use 32MB or 64MB for chaos demo
 
-  frontend:
-    envOverrides:
-      - name: PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-        value: https://otel-demo.spicy.honeydemo.io/otlp-http/v1/traces
 
-  frontend-proxy:
-    service:
-      type: NodePort
-    ingress:
-      enabled: true
-      annotations:
-        alb.ingress.kubernetes.io/scheme: internet-facing
-        alb.ingress.kubernetes.io/healthcheck-interval-seconds: '300'
-        alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
-        alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:465062709130:certificate/acd6cd1d-35fc-4f7b-8191-cefed94c9f69
-      ingressClassName: alb
-      hosts:
-        - host: otel-demo.spicy.honeydemo.io
-          paths:
-            - path: /
-              pathType: Prefix
-              port: 8080
+frontend:
+  envOverrides:
+    - name: PUBLIC_OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
+      value: https://otel-demo.spicy.honeydemo.io/otlp-http/v1/traces
 
+frontend-proxy:
+  service:
+    type: NodePort
+  ingress:
+    enabled: true
+    annotations:
+      alb.ingress.kubernetes.io/scheme: internet-facing
+      alb.ingress.kubernetes.io/healthcheck-interval-seconds: '300'
+      alb.ingress.kubernetes.io/listen-ports: '[{"HTTPS":443}, {"HTTP":80}]'
+      alb.ingress.kubernetes.io/certificate-arn: arn:aws:acm:us-east-1:465062709130:certificate/acd6cd1d-35fc-4f7b-8191-cefed94c9f69
+    ingressClassName: alb
+    hosts:
+      - host: otel-demo.spicy.honeydemo.io
+        paths:
+          - path: /
+            pathType: Prefix
+            port: 8080
 
 
 opentelemetry-collector:
