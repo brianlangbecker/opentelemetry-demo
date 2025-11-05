@@ -563,7 +563,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
 	rows, err := db.QueryContext(ctx, query)
 	querySpan.End()
-	
+
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, fmt.Sprintf("Database query failed: %v", err))
@@ -581,7 +581,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 	var products []*pb.Product
 	ctx, scanSpan := tracer.Start(ctx, "db.rows.scan")
 	scanCount := 0
-	
+
 	for rows.Next() {
 		var product pb.Product
 		product.PriceUsd = &pb.Money{}
@@ -597,7 +597,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 			&product.PriceUsd.Nanos,
 			&categories,
 		)
-		
+
 		if err != nil {
 			scanSpan.RecordError(err)
 			scanSpan.SetStatus(otelcodes.Error, fmt.Sprintf("Row scan failed: %v", err))
@@ -693,7 +693,7 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 		span.SetStatus(otelcodes.Error, fmt.Sprintf("Product not found: %s", id))
 		return nil, status.Errorf(codes.NotFound, "Product Not Found: %s", id)
 	}
-	
+
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, fmt.Sprintf("Database query failed: %v", err))
@@ -705,7 +705,7 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 	}
 
 	product.Categories = categories
-	
+
 	span.SetAttributes(
 		attribute.Bool("db.operation.success", true),
 		attribute.String("app.product.name", product.Name),
@@ -741,7 +741,7 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
 	rows, err := db.QueryContext(ctx, sqlQuery, searchPattern)
 	querySpan.End()
-	
+
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, fmt.Sprintf("Database query failed: %v", err))
@@ -759,7 +759,7 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 	var products []*pb.Product
 	ctx, scanSpan := tracer.Start(ctx, "db.rows.scan")
 	scanCount := 0
-	
+
 	for rows.Next() {
 		var product pb.Product
 		product.PriceUsd = &pb.Money{}
@@ -775,7 +775,7 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 			&product.PriceUsd.Nanos,
 			&categories,
 		)
-		
+
 		if err != nil {
 			scanSpan.RecordError(err)
 			scanSpan.SetStatus(otelcodes.Error, fmt.Sprintf("Row scan failed: %v", err))
@@ -829,6 +829,17 @@ func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.L
 	if useDatabase && db != nil {
 		products, err := listProductsFromDB(ctx)
 		if err != nil {
+			// Create explicit error span for visibility in traces
+			tracer := otel.Tracer("product-catalog")
+			_, errorSpan := tracer.Start(ctx, "error.list-products-failed")
+			errorSpan.SetAttributes(
+				attribute.String("error.type", "database_query_failure"),
+				attribute.String("error.message", err.Error()),
+			)
+			errorSpan.RecordError(err)
+			errorSpan.SetStatus(otelcodes.Error, "Failed to list products from database")
+			errorSpan.End()
+
 			span.SetStatus(otelcodes.Error, err.Error())
 			logger.Error(fmt.Sprintf("Failed to list products from database: %v", err))
 			return nil, status.Errorf(codes.Internal, "Failed to list products: %v", err)
@@ -867,6 +878,18 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	if useDatabase && db != nil {
 		found, err = getProductFromDB(ctx, req.Id)
 		if err != nil {
+			// Create explicit error span for visibility in traces
+			tracer := otel.Tracer("product-catalog")
+			_, errorSpan := tracer.Start(ctx, "error.get-product-failed")
+			errorSpan.SetAttributes(
+				attribute.String("error.type", "database_query_failure"),
+				attribute.String("error.message", err.Error()),
+				attribute.String("app.product.id", req.Id),
+			)
+			errorSpan.RecordError(err)
+			errorSpan.SetStatus(otelcodes.Error, "Failed to get product from database")
+			errorSpan.End()
+
 			span.SetStatus(otelcodes.Error, err.Error())
 			span.AddEvent(err.Error())
 			logger.Error(fmt.Sprintf("Failed to get product from database: %v", err))
@@ -915,6 +938,18 @@ func (p *productCatalog) SearchProducts(ctx context.Context, req *pb.SearchProdu
 	if useDatabase && db != nil {
 		result, err = searchProductsFromDB(ctx, req.Query)
 		if err != nil {
+			// Create explicit error span for visibility in traces
+			tracer := otel.Tracer("product-catalog")
+			_, errorSpan := tracer.Start(ctx, "error.search-products-failed")
+			errorSpan.SetAttributes(
+				attribute.String("error.type", "database_query_failure"),
+				attribute.String("error.message", err.Error()),
+				attribute.String("app.search.query", req.Query),
+			)
+			errorSpan.RecordError(err)
+			errorSpan.SetStatus(otelcodes.Error, "Failed to search products from database")
+			errorSpan.End()
+
 			span.SetStatus(otelcodes.Error, err.Error())
 			logger.Error(fmt.Sprintf("Failed to search products from database: %v", err))
 			return nil, status.Errorf(codes.Internal, "Failed to search products: %v", err)
