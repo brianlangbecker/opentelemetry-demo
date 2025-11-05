@@ -240,13 +240,10 @@ func main() {
 	}()
 
 	// Write initial message to stderr in case logging isn't ready
-	fmt.Fprintf(os.Stderr, "[DEBUG] Starting product-catalog service...\n")
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 1: About to initialize logger provider\n")
+	fmt.Fprintf(os.Stderr, "Starting product-catalog service...\n")
 
 	lp := initLoggerProvider()
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 2: Logger provider initialized\n")
 	defer func() {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Shutting down logger provider\n")
 		if err := lp.Shutdown(context.Background()); err != nil {
 			logger.Error(fmt.Sprintf("Logger Provider Shutdown: %v", err))
 		}
@@ -254,22 +251,15 @@ func main() {
 	}()
 
 	// Replace standard logger with OTel logger now that OTel is initialized
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 3: Creating OTel logger\n")
 	logger = otelslog.NewLogger("product-catalog")
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 4: OTel logger created\n")
 	logger.Info("Logger initialized successfully")
 
 	// Load product catalog now (moved from init() to avoid crashes)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 4.5: Loading product catalog\n")
 	loadProductCatalog()
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 4.5: Product catalog loaded\n")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 5: About to initialize tracer provider\n")
 	tp := initTracerProvider()
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 6: Tracer provider initialized\n")
 	logger.Info("Tracer provider initialized")
 	defer func() {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Shutting down tracer provider\n")
 		if err := tp.Shutdown(context.Background()); err != nil {
 			logger.Error(fmt.Sprintf("Tracer Provider Shutdown: %v", err))
 		}
@@ -283,24 +273,19 @@ func main() {
 	defer initSpan.End()
 	initSpan.SetAttributes(attribute.String("service.name", "product-catalog"))
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 7: About to initialize meter provider\n")
 	mp := initMeterProvider()
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 8: Meter provider initialized\n")
 	logger.Info("Meter provider initialized")
 	defer func() {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Shutting down meter provider\n")
 		if err := mp.Shutdown(context.Background()); err != nil {
 			logger.Error(fmt.Sprintf("Error shutting down meter provider: %v", err))
 		}
 		logger.Info("Shutdown meter provider")
 	}()
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 9: OpenTelemetry providers initialized\n")
 	initSpan.AddEvent("OpenTelemetry providers initialized")
 	logger.Info("All OpenTelemetry providers initialized")
 
 	// Initialize database connection
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 10: About to initialize database connection\n")
 	_, dbSpan := tracer.Start(initCtx, "product-catalog.init.database")
 	defer dbSpan.End()
 
@@ -308,14 +293,12 @@ func main() {
 	db, err = initDatabase()
 	if err != nil {
 		// Log error and fall back to JSON file catalog instead of exiting
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 10 FAILED: Database initialization failed: %v. Falling back to JSON.\n", err)
 		dbSpan.SetStatus(otelcodes.Error, err.Error())
 		dbSpan.RecordError(err)
 		logger.Error(fmt.Sprintf("Failed to initialize database: %v. Falling back to JSON file catalog.", err))
 		useDatabase = false
 		// Don't exit - allow service to start with JSON fallback
 	} else if db != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 10 SUCCESS: Database connection successful\n")
 		dbSpan.SetAttributes(attribute.String("db.connection.status", "success"))
 		dbSpan.AddEvent("Database connection established")
 		logger.Info("Database connection established successfully")
@@ -326,114 +309,80 @@ func main() {
 			logger.Info("Database connection closed")
 		}()
 	} else {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 10 SKIPPED: Database disabled, using JSON catalog\n")
 		dbSpan.SetAttributes(attribute.String("db.connection.status", "disabled"))
 		logger.Info("Database disabled, using JSON file catalog")
 	}
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 11: About to initialize OpenFeature\n")
 	_, featureSpan := tracer.Start(initCtx, "product-catalog.init.feature-flags")
 	openfeature.AddHooks(otelhooks.NewTracesHook())
 	provider, err := flagd.NewProvider()
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 11 WARNING: Flagd provider creation failed: %v\n", err)
 		featureSpan.RecordError(err)
 		logger.Error(err.Error())
-	} else {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 11: Flagd provider created\n")
 	}
 	err = openfeature.SetProvider(provider)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 11 WARNING: SetProvider failed: %v\n", err)
 		featureSpan.RecordError(err)
 		logger.Error(err.Error())
-	} else {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 11: Feature flags provider set\n")
 	}
 	featureSpan.End()
 	logger.Info("Feature flags initialized")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 12: About to start runtime instrumentation\n")
 	_, runtimeSpan := tracer.Start(initCtx, "product-catalog.init.runtime")
 	err = runtime.Start(runtime.WithMinimumReadMemStatsInterval(time.Second))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 12 WARNING: Runtime instrumentation failed: %v\n", err)
 		runtimeSpan.RecordError(err)
 		logger.Error(err.Error())
 	} else {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 12: Runtime instrumentation started\n")
 		runtimeSpan.SetAttributes(attribute.String("runtime.status", "started"))
 	}
 	runtimeSpan.End()
 	logger.Info("Runtime instrumentation started")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 13: About to create service instance\n")
 	svc := &productCatalog{}
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 14: About to get PRODUCT_CATALOG_PORT\n")
 	var port string
 	mustMapEnv(&port, "PRODUCT_CATALOG_PORT")
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 14: PORT=%s\n", port)
 	logger.Info(fmt.Sprintf("Product Catalog gRPC server starting on port: %s", port))
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 15: About to listen on TCP port %s\n", port)
 	ln, err := net.Listen("tcp", fmt.Sprintf(":%s", port))
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "[DEBUG] Step 15 FAILED: TCP Listen error: %v\n", err)
 		logger.Error(fmt.Sprintf("TCP Listen: %v", err))
 		os.Exit(1)
 	}
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 15: TCP listener created successfully\n")
 	logger.Info("TCP listener created")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 16: About to create gRPC server\n")
 	srv := grpc.NewServer(
 		grpc.StatsHandler(otelgrpc.NewServerHandler()),
 	)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 16: gRPC server created\n")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 17: About to register reflection\n")
 	reflection.Register(srv)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 17: Reflection registered\n")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 18: About to register ProductCatalogService\n")
 	pb.RegisterProductCatalogServiceServer(srv, svc)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 18: ProductCatalogService registered\n")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 19: About to create health check\n")
 	healthcheck := health.NewServer()
 	healthpb.RegisterHealthServer(srv, healthcheck)
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 19: Health check registered\n")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 20: About to set up signal handlers\n")
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGKILL)
 	defer cancel()
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 20: Signal handlers set\n")
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 21: About to start gRPC server\n")
 	initSpan.AddEvent("gRPC server starting")
 	logger.Info("Starting gRPC server")
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 21: Starting server goroutine\n")
 	go func() {
-		fmt.Fprintf(os.Stderr, "[DEBUG] SERVER RUNNING: gRPC server is now serving\n")
 		if err := srv.Serve(ln); err != nil {
-			fmt.Fprintf(os.Stderr, "[DEBUG] SERVER ERROR: Failed to serve gRPC server: %v\n", err)
 			logger.Error(fmt.Sprintf("Failed to serve gRPC server, err: %v", err))
 		}
 	}()
 
-	fmt.Fprintf(os.Stderr, "[DEBUG] Step 22: Server started, waiting for shutdown signal\n")
 	initSpan.AddEvent("gRPC server started successfully")
 	initSpan.SetAttributes(attribute.String("server.port", port))
 	initSpan.SetStatus(otelcodes.Ok, "Service initialized successfully")
 	logger.Info("Product Catalog gRPC server started and ready")
 
 	<-ctx.Done()
-	fmt.Fprintf(os.Stderr, "[DEBUG] Shutdown signal received\n")
 
 	srv.GracefulStop()
 	logger.Info("Product Catalog gRPC server stopped")
-	fmt.Fprintf(os.Stderr, "[DEBUG] Server stopped\n")
 }
 
 type productCatalog struct {
@@ -829,9 +778,9 @@ func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.L
 	if useDatabase && db != nil {
 		products, err := listProductsFromDB(ctx)
 		if err != nil {
-		// Create explicit error span for visibility in traces
-		tracer := otel.Tracer("product-catalog")
-		_, errorSpan := tracer.Start(ctx, "ERROR: Failed to list products from database")
+			// Create explicit error span for visibility in traces
+			tracer := otel.Tracer("product-catalog")
+			_, errorSpan := tracer.Start(ctx, "ERROR: Failed to list products from database")
 			errorSpan.SetAttributes(
 				attribute.String("error.type", "database_query_failure"),
 				attribute.String("error.message", err.Error()),
@@ -878,9 +827,9 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	if useDatabase && db != nil {
 		found, err = getProductFromDB(ctx, req.Id)
 		if err != nil {
-		// Create explicit error span for visibility in traces
-		tracer := otel.Tracer("product-catalog")
-		_, errorSpan := tracer.Start(ctx, "ERROR: Failed to get product from database")
+			// Create explicit error span for visibility in traces
+			tracer := otel.Tracer("product-catalog")
+			_, errorSpan := tracer.Start(ctx, "ERROR: Failed to get product from database")
 			errorSpan.SetAttributes(
 				attribute.String("error.type", "database_query_failure"),
 				attribute.String("error.message", err.Error()),
@@ -937,9 +886,9 @@ func (p *productCatalog) SearchProducts(ctx context.Context, req *pb.SearchProdu
 	if useDatabase && db != nil {
 		result, err = searchProductsFromDB(ctx, req.Query)
 		if err != nil {
-		// Create explicit error span for visibility in traces
-		tracer := otel.Tracer("product-catalog")
-		_, errorSpan := tracer.Start(ctx, "ERROR: Failed to search products from database")
+			// Create explicit error span for visibility in traces
+			tracer := otel.Tracer("product-catalog")
+			_, errorSpan := tracer.Start(ctx, "ERROR: Failed to search products from database")
 			errorSpan.SetAttributes(
 				attribute.String("error.type", "database_query_failure"),
 				attribute.String("error.message", err.Error()),
