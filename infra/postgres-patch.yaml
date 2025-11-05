@@ -5,9 +5,13 @@ spec:
       - name: postgresql
         resources:
           limits:
-            memory: 300Mi
+            memory: 512Mi
+            cpu: 512m
+            ephemeral-storage: "1Gi"
           requests:
-            memory: 300Mi
+            memory: 256Mi
+            cpu: 200m
+            ephemeral-storage: "500Mi"
         env:
         - name: POSTGRES_SHARED_BUFFERS
           value: "64MB"
@@ -16,6 +20,7 @@ spec:
         volumeMounts:
         - name: postgresql-data
           mountPath: /var/lib/postgresql/data
+          subPath: pgdata
       volumes:
       - name: postgresql-data
         persistentVolumeClaim:

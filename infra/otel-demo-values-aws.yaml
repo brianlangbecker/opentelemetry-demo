@@ -1,26 +1,38 @@
 components:
   load-generator:
+    replicas: 1
+    envOverrides:
+      - name: LOCUST_BROWSER_TRAFFIC_ENABLED
+        value: "false"
     resources:
       limits:
         memory: 4Gi
         cpu: 2000m
+        ephemeral-storage: "2Gi"
       requests:
         memory: 2Gi
         cpu: 1000m
+        ephemeral-storage: "1Gi"
 
   accounting:
     resources:
       limits:
-        memory: 256Mi
+        memory: 1Gi
+        ephemeral-storage: "500Mi"
       requests:
-        memory: 128Mi
+        memory: 512Mi
+        ephemeral-storage: "250Mi"
 
   postgresql:
     resources:
       limits:
-        memory: 300Mi
+        memory: 512Mi
+        cpu: 512m
+        ephemeral-storage: "1Gi"
       requests:
-        memory: 300Mi
+        memory: 256Mi
+        cpu: 200m
+        ephemeral-storage: "500Mi"
     # Optional: Reduce shared_buffers for IOPS pressure demo
     # Lower cache = more disk reads = visible IOPS issues
     # envOverrides:
@@ -102,6 +114,61 @@ opentelemetry-collector:
             enabled: true
           k8s.deployment.available:
             enabled: true
+      prometheus:
+        config:
+          scrape_configs:
+            - job_name: 'istio-mesh'
+              kubernetes_sd_configs:
+                - role: pod
+              relabel_configs:
+                # Only scrape pods with istio-proxy container
+                - source_labels: [__meta_kubernetes_pod_container_name]
+                  action: keep
+                  regex: istio-proxy
+                # Get pod IP and set to port 15020
+                - source_labels: [__meta_kubernetes_pod_ip]
+                  action: replace
+                  target_label: __address__
+                  replacement: $1:15020
+                # Add namespace label
+                - source_labels: [__meta_kubernetes_namespace]
+                  target_label: namespace
+                # Add pod name label
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: pod
+                # Add pod labels as metric labels
+                - action: labelmap
+                  regex: __meta_kubernetes_pod_label_(.+)
+              metrics_path: /stats/prometheus
+              scrape_interval: 30s
+            
+            - job_name: 'istiod'
+              kubernetes_sd_configs:
+                - role: pod
+                  namespaces:
+                    names:
+                      - istio-system
+              relabel_configs:
+                # Only scrape istiod pods
+                - source_labels: [__meta_kubernetes_pod_label_app]
+                  action: keep
+                  regex: istiod
+                # Get pod IP and set to port 15014 (istiod metrics port)
+                - source_labels: [__meta_kubernetes_pod_ip]
+                  action: replace
+                  target_label: __address__
+                  replacement: $1:15014
+                # Add namespace label
+                - source_labels: [__meta_kubernetes_namespace]
+                  target_label: namespace
+                # Add pod name label
+                - source_labels: [__meta_kubernetes_pod_name]
+                  target_label: pod
+                # Add pod labels as metric labels
+                - action: labelmap
+                  regex: __meta_kubernetes_pod_label_(.+)
+              metrics_path: /metrics
+              scrape_interval: 30s
       k8sobjects:
         auth_type: serviceAccount
         objects:
@@ -115,6 +182,34 @@ opentelemetry-collector:
             group: events.k8s.io
             namespaces: [otel-demo]
     processors:
+      resource/prometheus:
+        attributes:
+          - key: job
+            action: upsert
+            from_attribute: service.name
+      k8sattributes:
+        passthrough: true
+        extract:
+          metadata:
+            - k8s.namespace.name
+            - k8s.deployment.name
+            - k8s.statefulset.name
+            - k8s.daemonset.name
+            - k8s.cronjob.name
+            - k8s.job.name
+            - k8s.node.name
+            - k8s.pod.name
+            - k8s.pod.uid
+            - k8s.pod.start_time
+        pod_association:
+          - sources:
+            - from: resource_attribute
+              name: k8s.pod.ip
+          - sources:
+            - from: resource_attribute
+              name: k8s.pod.uid
+          - sources:
+            - from: connection
       resource/k8s_events:
         attributes:
           - key: honeycomb.dataset
@@ -184,6 +279,10 @@ opentelemetry-collector:
           - kubeletstats
           - k8s_cluster
           - postgresql
+          - prometheus
+          processors:
+          - k8sattributes
+          - resource/prometheus
           exporters:
           - otlp/honeycomb
           - debug
@@ -192,3 +291,15 @@ opentelemetry-collector:
           - otlp/honeycomb
           - spanmetrics
           - debug
+
+prometheus:
+  server:
+    resources:
+      limits:
+        memory: "2Gi"
+        cpu: "1000m"
+        ephemeral-storage: "2Gi"
+      requests:
+        memory: "1Gi"
+        cpu: "300m"
+        ephemeral-storage: "1Gi"
