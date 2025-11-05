@@ -545,7 +545,7 @@ func (p *productCatalog) Watch(req *healthpb.HealthCheckRequest, ws healthpb.Hea
 
 func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 	tracer := otel.Tracer("product-catalog")
-	ctx, span := tracer.Start(ctx, "db.products.list")
+	ctx, span := tracer.Start(ctx, "Query all products from database")
 	defer span.End()
 
 	span.SetAttributes(
@@ -560,7 +560,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 	span.SetAttributes(attribute.String("db.statement", query))
 
 	// Execute query with explicit span
-	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	ctx, querySpan := tracer.Start(ctx, "Execute SQL query")
 	rows, err := db.QueryContext(ctx, query)
 	querySpan.End()
 
@@ -579,7 +579,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 
 	// Scan rows with explicit span
 	var products []*pb.Product
-	ctx, scanSpan := tracer.Start(ctx, "db.rows.scan")
+	ctx, scanSpan := tracer.Start(ctx, "Scan database rows")
 	scanCount := 0
 
 	for rows.Next() {
@@ -647,7 +647,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 
 func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 	tracer := otel.Tracer("product-catalog")
-	ctx, span := tracer.Start(ctx, "db.products.get")
+	ctx, span := tracer.Start(ctx, "Query single product from database")
 	defer span.End()
 
 	span.SetAttributes(
@@ -663,7 +663,7 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 	span.SetAttributes(attribute.String("db.statement", query))
 
 	// Execute query with explicit span
-	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	ctx, querySpan := tracer.Start(ctx, "Execute SQL query")
 	row := db.QueryRowContext(ctx, query, id)
 	querySpan.End()
 
@@ -672,7 +672,7 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 	var categories pq.StringArray
 
 	// Scan with explicit span
-	ctx, scanSpan := tracer.Start(ctx, "db.row.scan")
+	ctx, scanSpan := tracer.Start(ctx, "Scan database row")
 	err := row.Scan(
 		&product.Id,
 		&product.Name,
@@ -716,7 +716,7 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 
 func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, error) {
 	tracer := otel.Tracer("product-catalog")
-	ctx, span := tracer.Start(ctx, "db.products.search")
+	ctx, span := tracer.Start(ctx, "Search products in database")
 	defer span.End()
 
 	span.SetAttributes(
@@ -757,7 +757,7 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 
 	// Scan rows with explicit span
 	var products []*pb.Product
-	ctx, scanSpan := tracer.Start(ctx, "db.rows.scan")
+	ctx, scanSpan := tracer.Start(ctx, "Scan database rows")
 	scanCount := 0
 
 	for rows.Next() {
@@ -829,9 +829,9 @@ func (p *productCatalog) ListProducts(ctx context.Context, req *pb.Empty) (*pb.L
 	if useDatabase && db != nil {
 		products, err := listProductsFromDB(ctx)
 		if err != nil {
-			// Create explicit error span for visibility in traces
-			tracer := otel.Tracer("product-catalog")
-			_, errorSpan := tracer.Start(ctx, "error.list-products-failed")
+		// Create explicit error span for visibility in traces
+		tracer := otel.Tracer("product-catalog")
+		_, errorSpan := tracer.Start(ctx, "ERROR: Failed to list products from database")
 			errorSpan.SetAttributes(
 				attribute.String("error.type", "database_query_failure"),
 				attribute.String("error.message", err.Error()),
@@ -878,9 +878,9 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	if useDatabase && db != nil {
 		found, err = getProductFromDB(ctx, req.Id)
 		if err != nil {
-			// Create explicit error span for visibility in traces
-			tracer := otel.Tracer("product-catalog")
-			_, errorSpan := tracer.Start(ctx, "error.get-product-failed")
+		// Create explicit error span for visibility in traces
+		tracer := otel.Tracer("product-catalog")
+		_, errorSpan := tracer.Start(ctx, "ERROR: Failed to get product from database")
 			errorSpan.SetAttributes(
 				attribute.String("error.type", "database_query_failure"),
 				attribute.String("error.message", err.Error()),
@@ -937,9 +937,9 @@ func (p *productCatalog) SearchProducts(ctx context.Context, req *pb.SearchProdu
 	if useDatabase && db != nil {
 		result, err = searchProductsFromDB(ctx, req.Query)
 		if err != nil {
-			// Create explicit error span for visibility in traces
-			tracer := otel.Tracer("product-catalog")
-			_, errorSpan := tracer.Start(ctx, "error.search-products-failed")
+		// Create explicit error span for visibility in traces
+		tracer := otel.Tracer("product-catalog")
+		_, errorSpan := tracer.Start(ctx, "ERROR: Failed to search products from database")
 			errorSpan.SetAttributes(
 				attribute.String("error.type", "database_query_failure"),
 				attribute.String("error.message", err.Error()),
