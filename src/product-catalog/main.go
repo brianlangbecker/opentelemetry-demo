@@ -868,7 +868,7 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 	if p.checkProductFailure(ctx, req.Id) {
 		msg := "Error: Product Catalog Fail Feature Flag Enabled"
 		span.SetStatus(otelcodes.Error, msg)
-		span.AddEvent(msg)
+		span.SetAttributes(attribute.String("error.message", msg))
 		return nil, status.Errorf(codes.Internal, msg)
 	}
 
@@ -891,7 +891,6 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 			errorSpan.End()
 
 			span.SetStatus(otelcodes.Error, err.Error())
-			span.AddEvent(err.Error())
 			logger.Error(fmt.Sprintf("Failed to get product from database: %v", err))
 			return nil, err
 		}
@@ -908,15 +907,15 @@ func (p *productCatalog) GetProduct(ctx context.Context, req *pb.GetProductReque
 		if found == nil {
 			msg := fmt.Sprintf("Product Not Found: %s", req.Id)
 			span.SetStatus(otelcodes.Error, msg)
-			span.AddEvent(msg)
+			span.SetAttributes(attribute.String("error.message", msg))
 			return nil, status.Errorf(codes.NotFound, msg)
 		}
 	}
 
-	span.AddEvent("Product Found")
 	span.SetAttributes(
 		attribute.String("app.product.id", req.Id),
 		attribute.String("app.product.name", found.Name),
+		attribute.Bool("app.product.found", true),
 	)
 
 	logger.LogAttrs(
