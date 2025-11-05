@@ -624,42 +624,30 @@ func (cs *checkout) sendToPostProcessor(ctx context.Context, result *pb.OrderRes
 	span := createProducerSpan(ctx, &msg)
 	defer span.End()
 
-	// Send message and handle response
+	// Send message asynchronously - don't wait for confirmation
+	// Since RequiredAcks = NoResponse, we can fire-and-forget
+	// This prevents Kafka backpressure from blocking checkout
 	startTime := time.Now()
 	select {
 	case cs.KafkaProducerClient.Input() <- &msg:
-		select {
-		case successMsg := <-cs.KafkaProducerClient.Successes():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", true),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-				attribute.KeyValue(semconv.MessagingKafkaMessageOffset(int(successMsg.Offset))),
-			)
-			logger.Info(fmt.Sprintf("Successful to write message. offset: %v, duration: %v", successMsg.Offset, time.Since(startTime)))
-		case errMsg := <-cs.KafkaProducerClient.Errors():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", false),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-			)
-			span.SetStatus(otelcodes.Error, errMsg.Err.Error())
-			logger.Error(fmt.Sprintf("Failed to write message: %v", errMsg.Err))
-		case <-ctx.Done():
-			span.SetAttributes(
-				attribute.Bool("messaging.kafka.producer.success", false),
-				attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
-			)
-			span.SetStatus(otelcodes.Error, "Context cancelled: "+ctx.Err().Error())
-			logger.Warn(fmt.Sprintf("Context canceled before success message received: %v", ctx.Err()))
-		}
+		// Message sent to buffer - don't wait for Successes()
+		// This prevents Kafka backpressure from blocking checkout
+		span.SetAttributes(
+			attribute.Bool("messaging.kafka.producer.sent", true),
+			attribute.Int("messaging.kafka.producer.enqueue_ms", int(time.Since(startTime).Milliseconds())),
+		)
+		logger.Info(fmt.Sprintf("Message sent to Kafka buffer. Enqueue time: %v", time.Since(startTime)))
 	case <-ctx.Done():
 		span.SetAttributes(
-			attribute.Bool("messaging.kafka.producer.success", false),
-			attribute.Int("messaging.kafka.producer.duration_ms", int(time.Since(startTime).Milliseconds())),
+			attribute.Bool("messaging.kafka.producer.sent", false),
 		)
 		span.SetStatus(otelcodes.Error, "Failed to send: "+ctx.Err().Error())
 		logger.Error(fmt.Sprintf("Failed to send message to Kafka within context deadline: %v", ctx.Err()))
 		return
 	}
+
+	// Errors will be logged by the background goroutine in producer.go
+	// Don't wait for Successes() to avoid blocking on Kafka backpressure
 
 	ffValue := cs.getIntFeatureFlag(ctx, "kafkaQueueProblems")
 	if ffValue > 0 {

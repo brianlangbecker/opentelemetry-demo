@@ -23,6 +23,22 @@ components:
         memory: 512Mi
         ephemeral-storage: "250Mi"
 
+  product-catalog:
+    envOverrides:
+      - name: USE_DATABASE
+        value: "true"
+      - name: DB_CONNECTION_STRING
+        value: "host=postgresql port=5432 user=root password=otel dbname=otel sslmode=disable"
+    resources:
+      limits:
+        memory: 512Mi
+        cpu: 512m
+        ephemeral-storage: "500Mi"
+      requests:
+        memory: 256Mi
+        cpu: 200m
+        ephemeral-storage: "250Mi"
+
   postgresql:
     resources:
       limits:

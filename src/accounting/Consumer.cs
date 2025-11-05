@@ -6,6 +6,7 @@ using Microsoft.Extensions.Logging;
 using Oteldemo;
 using Microsoft.EntityFrameworkCore;
 using System.Diagnostics;
+using System.Text;
 
 namespace Accounting;
 
@@ -59,7 +60,30 @@ internal class Consumer : IDisposable
                 try
                 {
                     var consumeResult = _consumer.Consume();
-                    using var activity = MyActivitySource.StartActivity("order-consumed",  ActivityKind.Internal);
+
+                    // Extract parent trace context from Kafka message headers
+                    var parentContext = ExtractTraceContextFromKafkaHeaders(consumeResult.Message.Headers);
+
+                    // Create span with parent context
+                    using var activity = parentContext != default
+                        ? MyActivitySource.StartActivity(
+                            "order-consumed",
+                            ActivityKind.Consumer,  // Changed from Internal to Consumer
+                            parentContext
+                          )
+                        : MyActivitySource.StartActivity(
+                            "order-consumed",
+                            ActivityKind.Consumer
+                          );
+
+                    // Add Kafka-specific attributes
+                    if (activity != null)
+                    {
+                        activity.SetTag("messaging.system", "kafka");
+                        activity.SetTag("messaging.destination", TopicName);
+                        activity.SetTag("messaging.operation", "receive");
+                    }
+
                     ProcessMessage(consumeResult.Message);
                 }
                 catch (ConsumeException e)
@@ -158,6 +182,40 @@ internal class Consumer : IDisposable
         {
             _logger.LogError(ex, "Order parsing failed:");
         }
+    }
+
+    private ActivityContext ExtractTraceContextFromKafkaHeaders(Headers headers)
+    {
+        try
+        {
+            // Extract traceparent header (W3C Trace Context format)
+            var traceparentHeader = headers?.FirstOrDefault(h => h.Key == "traceparent");
+            if (traceparentHeader != null)
+            {
+                var traceparent = Encoding.UTF8.GetString(traceparentHeader.GetValueBytes());
+
+                // Parse W3C traceparent: 00-{traceId}-{spanId}-{flags}
+                if (ActivityContext.TryParse(traceparent, null, out var context))
+                {
+                    _logger.LogDebug($"Extracted trace context: TraceId={context.TraceId}, SpanId={context.SpanId}");
+                    return context;
+                }
+                else
+                {
+                    _logger.LogWarning($"Failed to parse traceparent header: {traceparent}");
+                }
+            }
+            else
+            {
+                _logger.LogDebug("No traceparent header found in Kafka message");
+            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Failed to extract trace context from Kafka headers");
+        }
+
+        return default; // Return empty context if extraction fails
     }
 
     private IConsumer<string, byte[]> BuildConsumer(string servers)
