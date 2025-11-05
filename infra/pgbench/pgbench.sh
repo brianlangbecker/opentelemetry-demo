@@ -223,17 +223,19 @@ echo $! > /tmp/connection-exhaust.pid
         exit 0
         ;;
     table-lock)
-        echo -e "${RED}Scenario: TABLE LOCK - ORDER TABLE${NC}"
+        echo -e "${RED}Scenario: TABLE LOCK - ORDER & PRODUCTS TABLES${NC}"
         echo "  - Locks 'order' table with exclusive lock (REAL blast radius!)"
-        echo "  - Holds lock for 10 MINUTES (sustained blast radius)"
-        echo "  - Purpose: Block accounting service writes"
-        echo "  - Expected: Accounting blocked, checkout timeouts, frontend errors"
+        echo "  - Locks 'products' table with exclusive lock (product-catalog impact!)"
+        echo "  - Holds locks for 10 MINUTES (sustained blast radius)"
+        echo "  - Purpose: Block accounting service writes AND product-catalog reads"
+        echo "  - Expected: Accounting blocked, checkout timeouts, product-catalog blocked, frontend errors"
         echo ""
         echo -e "${YELLOW}Blast radius cascade:${NC}"
         echo "  1. ORDER table locked → accounting writes blocked"
-        echo "  2. Kafka backlog grows → accounting memory increases"
-        echo "  3. Checkout API slows → frontend timeouts"
-        echo "  4. User-visible errors"
+        echo "  2. PRODUCTS table locked → product-catalog queries blocked"
+        echo "  3. Checkout can't get products → API failures"
+        echo "  4. Kafka backlog grows → accounting memory increases"
+        echo "  5. Frontend timeouts → User-visible errors"
         echo ""
         read -p "Continue? (y/n) " -n 1 -r
         echo ""
@@ -242,9 +244,11 @@ echo $! > /tmp/connection-exhaust.pid
             exit 0
         fi
 
-        echo -e "${BLUE}Locking 'order' table for 10 minutes...${NC}"
+        echo -e "${BLUE}Locking 'order' and 'products' tables for 10 minutes...${NC}"
         echo "Monitor in Honeycomb:"
         echo "  - accounting service: query duration spikes, blocked transactions"
+        echo "  - product-catalog service: query duration spikes, blocked queries"
+        echo "  - checkout service: product lookup failures"
         echo "  - frontend: error rates increase"
         echo ""
         echo -e "${YELLOW}Starting persistent lock session inside pod...${NC}"
@@ -256,7 +260,8 @@ echo $! > /tmp/connection-exhaust.pid
 nohup psql -U root otel > /tmp/table-lock-output.log 2>&1 <<EOF &
 BEGIN;
 LOCK TABLE "order" IN ACCESS EXCLUSIVE MODE;
-SELECT '\''Lock acquired on order table'\'' as status, NOW() as lock_time;
+LOCK TABLE products IN ACCESS EXCLUSIVE MODE;
+SELECT '\''Lock acquired on order and products tables'\'' as status, NOW() as lock_time;
 SELECT pg_sleep(600);
 COMMIT;
 SELECT '\''Lock released'\'' as status, NOW() as release_time;
@@ -267,13 +272,14 @@ echo $! > /tmp/table-lock.pid
         # Give it time to acquire lock
         sleep 5
         
-        # Verify lock is active
-        LOCKED=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'relation' AND relation = '\"order\"'::regclass;" 2>/dev/null | xargs || echo "0")
+        # Verify locks are active
+        ORDER_LOCKED=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'relation' AND relation = '\"order\"'::regclass;" 2>/dev/null | xargs || echo "0")
+        PRODUCTS_LOCKED=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'relation' AND relation = 'products'::regclass;" 2>/dev/null | xargs || echo "0")
 
-        if [ "$LOCKED" -gt "0" ]; then
-            echo -e "${RED}✓ Order table is now LOCKED for 10 MINUTES!${NC}"
+        if [ "$ORDER_LOCKED" -gt "0" ] && [ "$PRODUCTS_LOCKED" -gt "0" ]; then
+            echo -e "${RED}✓ Order and Products tables are now LOCKED for 10 MINUTES!${NC}"
         else
-            echo -e "${YELLOW}⚠ Warning: Lock may not be active (count: $LOCKED)${NC}"
+            echo -e "${YELLOW}⚠ Warning: Locks may not be active (order: $ORDER_LOCKED, products: $PRODUCTS_LOCKED)${NC}"
         fi
 
         echo ""
@@ -281,20 +287,22 @@ echo $! > /tmp/table-lock.pid
         # Monitor and show status every 30 seconds for 10 minutes
         for i in {1..20}; do
             sleep 30
-            LOCKED=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'relation' AND relation = '\"order\"'::regclass;" 2>/dev/null | xargs || echo "0")
+            ORDER_LOCKED=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'relation' AND relation = '\"order\"'::regclass;" 2>/dev/null | xargs || echo "0")
+            PRODUCTS_LOCKED=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM pg_locks WHERE locktype = 'relation' AND relation = 'products'::regclass;" 2>/dev/null | xargs || echo "0")
             WAITING=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM pg_stat_activity WHERE wait_event_type = 'Lock' AND datname = 'otel';" 2>/dev/null | xargs || echo "0")
-            INSERTS=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM \"order\";" 2>/dev/null | xargs || echo "0")
-            echo "[$((i*30))s / 600s] Lock: $LOCKED | Waiting: $WAITING | Order count: $INSERTS"
+            ORDER_COUNT=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM \"order\";" 2>/dev/null | xargs || echo "0")
+            PRODUCTS_COUNT=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root -d otel -t -c "SELECT COUNT(*) FROM products;" 2>/dev/null | xargs || echo "0")
+            echo "[$((i*30))s / 600s] Order lock: $ORDER_LOCKED | Products lock: $PRODUCTS_LOCKED | Waiting: $WAITING | Orders: $ORDER_COUNT | Products: $PRODUCTS_COUNT"
 
             # Check if lock process is still alive
-            if [ "$LOCKED" -eq "0" ]; then
-                echo -e "${YELLOW}⚠ Lock released early! Exiting monitor loop.${NC}"
+            if [ "$ORDER_LOCKED" -eq "0" ] && [ "$PRODUCTS_LOCKED" -eq "0" ]; then
+                echo -e "${YELLOW}⚠ Locks released early! Exiting monitor loop.${NC}"
                 break
             fi
         done
 
         echo ""
-        echo -e "${GREEN}Table lock released!${NC}"
+        echo -e "${GREEN}Table locks released!${NC}"
         echo -e "${GREEN}Table lock test complete!${NC}"
 
         # Show final output
