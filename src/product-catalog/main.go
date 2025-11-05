@@ -494,7 +494,7 @@ func (p *productCatalog) Watch(req *healthpb.HealthCheckRequest, ws healthpb.Hea
 
 func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 	tracer := otel.Tracer("product-catalog")
-	ctx, span := tracer.Start(ctx, "Query all products from database")
+	ctx, span := tracer.Start(ctx, "db.products.list")
 	defer span.End()
 
 	span.SetAttributes(
@@ -503,15 +503,26 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 		attribute.String("db.sql.table", "products"),
 	)
 
-	query := `SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories 
+	query := `SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories
 	          FROM products ORDER BY name`
 
 	span.SetAttributes(attribute.String("db.statement", query))
 
-	// Execute query with explicit span
-	ctx, querySpan := tracer.Start(ctx, "Execute SQL query")
+	// Execute query with explicit span for visibility
+	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	querySpan.SetAttributes(
+		attribute.String("db.operation", "SELECT"),
+		attribute.String("db.sql.table", "products"),
+	)
 	rows, err := db.QueryContext(ctx, query)
-	querySpan.End()
+	if err != nil {
+		querySpan.RecordError(err)
+		querySpan.SetStatus(otelcodes.Error, "Query execution failed")
+		querySpan.End()
+	} else {
+		querySpan.SetStatus(otelcodes.Ok, "Query executed successfully")
+		querySpan.End()
+	}
 
 	if err != nil {
 		span.RecordError(err)
@@ -526,9 +537,12 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 
 	span.SetAttributes(attribute.Bool("db.query.success", true))
 
-	// Scan rows with explicit span
+	// Scan rows with explicit span for visibility
 	var products []*pb.Product
-	ctx, scanSpan := tracer.Start(ctx, "Scan database rows")
+	ctx, scanSpan := tracer.Start(ctx, "db.rows.scan")
+	scanSpan.SetAttributes(
+		attribute.String("db.operation", "scan"),
+	)
 	scanCount := 0
 
 	for rows.Next() {
@@ -549,7 +563,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 
 		if err != nil {
 			scanSpan.RecordError(err)
-			scanSpan.SetStatus(otelcodes.Error, fmt.Sprintf("Row scan failed: %v", err))
+			scanSpan.SetStatus(otelcodes.Error, "Row scan failed")
 			scanSpan.SetAttributes(
 				attribute.Int("db.rows.scanned", scanCount),
 				attribute.Bool("db.scan.error", true),
@@ -568,7 +582,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 
 	if err = rows.Err(); err != nil {
 		scanSpan.RecordError(err)
-		scanSpan.SetStatus(otelcodes.Error, fmt.Sprintf("Row iteration error: %v", err))
+		scanSpan.SetStatus(otelcodes.Error, "Row iteration error")
 		scanSpan.SetAttributes(
 			attribute.Int("db.rows.scanned", scanCount),
 			attribute.Bool("db.iteration.error", true),
@@ -584,6 +598,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 		attribute.Int("db.rows.scanned", scanCount),
 		attribute.Bool("db.scan.success", true),
 	)
+	scanSpan.SetStatus(otelcodes.Ok, fmt.Sprintf("Scanned %d rows successfully", scanCount))
 	scanSpan.End()
 
 	span.SetAttributes(
@@ -596,7 +611,7 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 
 func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 	tracer := otel.Tracer("product-catalog")
-	ctx, span := tracer.Start(ctx, "Query single product from database")
+	ctx, span := tracer.Start(ctx, "db.product.get")
 	defer span.End()
 
 	span.SetAttributes(
@@ -606,22 +621,30 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 		attribute.String("app.product.id", id),
 	)
 
-	query := `SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories 
+	query := `SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories
 	          FROM products WHERE id = $1`
 
 	span.SetAttributes(attribute.String("db.statement", query))
 
-	// Execute query with explicit span
-	ctx, querySpan := tracer.Start(ctx, "Execute SQL query")
+	// Execute query with explicit span for visibility
+	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	querySpan.SetAttributes(
+		attribute.String("db.operation", "SELECT"),
+		attribute.String("db.sql.table", "products"),
+	)
 	row := db.QueryRowContext(ctx, query, id)
+	querySpan.SetStatus(otelcodes.Ok, "Query executed successfully")
 	querySpan.End()
 
 	var product pb.Product
 	product.PriceUsd = &pb.Money{}
 	var categories pq.StringArray
 
-	// Scan with explicit span
-	ctx, scanSpan := tracer.Start(ctx, "Scan database row")
+	// Scan with explicit span for visibility
+	ctx, scanSpan := tracer.Start(ctx, "db.row.scan")
+	scanSpan.SetAttributes(
+		attribute.String("db.operation", "scan"),
+	)
 	err := row.Scan(
 		&product.Id,
 		&product.Name,
@@ -632,9 +655,13 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 		&product.PriceUsd.Nanos,
 		&categories,
 	)
-	scanSpan.End()
 
 	if err == sql.ErrNoRows {
+		scanSpan.SetStatus(otelcodes.Error, "Product not found")
+		scanSpan.SetAttributes(
+			attribute.Bool("db.query.not_found", true),
+		)
+		scanSpan.End()
 		span.SetAttributes(
 			attribute.Bool("db.query.not_found", true),
 			attribute.Bool("db.operation.success", false),
@@ -644,6 +671,13 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 	}
 
 	if err != nil {
+		scanSpan.RecordError(err)
+		scanSpan.SetStatus(otelcodes.Error, "Row scan failed")
+		scanSpan.SetAttributes(
+			attribute.Bool("db.scan.error", true),
+			attribute.String("db.error.message", err.Error()),
+		)
+		scanSpan.End()
 		span.RecordError(err)
 		span.SetStatus(otelcodes.Error, fmt.Sprintf("Database query failed: %v", err))
 		span.SetAttributes(
@@ -652,6 +686,9 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 		)
 		return nil, fmt.Errorf("failed to query product: %w", err)
 	}
+
+	scanSpan.SetStatus(otelcodes.Ok, "Row scanned successfully")
+	scanSpan.End()
 
 	product.Categories = categories
 
@@ -665,7 +702,7 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 
 func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, error) {
 	tracer := otel.Tracer("product-catalog")
-	ctx, span := tracer.Start(ctx, "Search products in database")
+	ctx, span := tracer.Start(ctx, "db.products.search")
 	defer span.End()
 
 	span.SetAttributes(
@@ -675,8 +712,8 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 		attribute.String("app.search.query", query),
 	)
 
-	sqlQuery := `SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories 
-	             FROM products 
+	sqlQuery := `SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories
+	             FROM products
 	             WHERE name ILIKE $1 OR description ILIKE $1
 	             ORDER BY name`
 
@@ -686,10 +723,21 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 		attribute.String("db.query.parameter", searchPattern),
 	)
 
-	// Execute query with explicit span
+	// Execute query with explicit span for visibility
 	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	querySpan.SetAttributes(
+		attribute.String("db.operation", "SELECT"),
+		attribute.String("db.sql.table", "products"),
+	)
 	rows, err := db.QueryContext(ctx, sqlQuery, searchPattern)
-	querySpan.End()
+	if err != nil {
+		querySpan.RecordError(err)
+		querySpan.SetStatus(otelcodes.Error, "Query execution failed")
+		querySpan.End()
+	} else {
+		querySpan.SetStatus(otelcodes.Ok, "Query executed successfully")
+		querySpan.End()
+	}
 
 	if err != nil {
 		span.RecordError(err)
@@ -704,9 +752,12 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 
 	span.SetAttributes(attribute.Bool("db.query.success", true))
 
-	// Scan rows with explicit span
+	// Scan rows with explicit span for visibility
 	var products []*pb.Product
-	ctx, scanSpan := tracer.Start(ctx, "Scan database rows")
+	ctx, scanSpan := tracer.Start(ctx, "db.rows.scan")
+	scanSpan.SetAttributes(
+		attribute.String("db.operation", "scan"),
+	)
 	scanCount := 0
 
 	for rows.Next() {
@@ -727,7 +778,7 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 
 		if err != nil {
 			scanSpan.RecordError(err)
-			scanSpan.SetStatus(otelcodes.Error, fmt.Sprintf("Row scan failed: %v", err))
+			scanSpan.SetStatus(otelcodes.Error, "Row scan failed")
 			scanSpan.SetAttributes(
 				attribute.Int("db.rows.scanned", scanCount),
 				attribute.Bool("db.scan.error", true),
@@ -746,7 +797,7 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 
 	if err = rows.Err(); err != nil {
 		scanSpan.RecordError(err)
-		scanSpan.SetStatus(otelcodes.Error, fmt.Sprintf("Row iteration error: %v", err))
+		scanSpan.SetStatus(otelcodes.Error, "Row iteration error")
 		scanSpan.SetAttributes(
 			attribute.Int("db.rows.scanned", scanCount),
 			attribute.Bool("db.iteration.error", true),
@@ -762,6 +813,7 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 		attribute.Int("db.rows.scanned", scanCount),
 		attribute.Bool("db.scan.success", true),
 	)
+	scanSpan.SetStatus(otelcodes.Ok, fmt.Sprintf("Scanned %d rows successfully", scanCount))
 	scanSpan.End()
 
 	span.SetAttributes(
