@@ -18,12 +18,15 @@ This guide documents the execution of a PostgreSQL IOPS pressure test that demon
 ## 🎯 **What This Test Does**
 
 ### Chaos Engineering Scenario
+
 Simulates a production database under extreme I/O pressure due to:
+
 - Undersized cache (32MB for 704MB database)
 - High query volume (50 concurrent connections)
 - Direct table targeting (products table used by product-catalog)
 
 ### Why This Matters
+
 - **Real-world analog:** RDS/Aurora with inadequate cache or IOPS limits
 - **Observable impact:** Clear error propagation through service dependencies
 - **Blast radius:** Demonstrates how database issues affect end users
@@ -34,6 +37,7 @@ Simulates a production database under extreme I/O pressure due to:
 ## 🔧 **Test Configuration**
 
 ### System State Before Test
+
 ```
 Database Size:       704 MB
 Products Table:      1,510 products (8 MB)
@@ -44,6 +48,7 @@ Services:            All healthy
 ```
 
 ### Chaos Configuration Applied
+
 ```
 PostgreSQL Cache:    32 MB (reduced from 128MB)
 Cache Ratio:         4.5% of database size (22x undersized!)
@@ -53,6 +58,7 @@ Duration:            5 minutes continuous load
 ```
 
 ### Why 32MB Cache?
+
 - Large enough that PostgreSQL still functions
 - Small enough to create real I/O pressure
 - Demonstrates observable degradation without total failure
@@ -65,6 +71,7 @@ Duration:            5 minutes continuous load
 ### Step 1: Ensure Persistent Storage
 
 **Command:**
+
 ```bash
 cd /Users/brianlangbecker/Documents/GitHub/opentelemetry-demo
 
@@ -81,6 +88,7 @@ kubectl rollout status deployment/postgresql -n otel-demo --timeout=90s
 **Why:** Ensures the 704MB database with 1,510 products survives multiple restarts during chaos test.
 
 **Result:**
+
 ```
 PVC: postgresql-data (2Gi) - Bound
 Mount: /var/lib/postgresql/data/pgdata
@@ -92,6 +100,7 @@ Status: ✅ Data persisted across restarts
 ### Step 2: Reduce PostgreSQL Cache (Introduce Chaos)
 
 **Command:**
+
 ```bash
 # Update ConfigMap
 kubectl patch configmap postgres-config -n otel-demo --type='json' \
@@ -115,14 +124,16 @@ kubectl exec -n otel-demo $POD -c postgresql -- \
 ```
 
 **Expected Output:**
+
 ```
-shared_buffers 
+shared_buffers
 ----------------
  32MB
 (1 row)
 ```
 
 **Why Three Methods?**
+
 1. ConfigMap: Standard Kubernetes configuration
 2. Environment Variable: Deployment-level setting
 3. ALTER SYSTEM: PostgreSQL-native configuration
@@ -134,6 +145,7 @@ PostgreSQL startup scripts read `POSTGRES_SHARED_BUFFERS` env var, so all three 
 ### Step 3: Create Custom pgbench Workload
 
 **Command:**
+
 ```bash
 # Create workload script that simulates product-catalog queries
 cat > /tmp/products-iops-load.sql << 'EOF'
@@ -142,22 +154,22 @@ cat > /tmp/products-iops-load.sql << 'EOF'
 \set action random(1, 10)
 
 -- Single product fetch (90% of queries) - simulates GetProduct
-SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories 
-FROM products 
+SELECT id, name, description, picture, price_currency_code, price_units, price_nanos, categories
+FROM products
 WHERE id = (SELECT id FROM products ORDER BY RANDOM() LIMIT 1);
 
 -- Full table scan (10% of queries) - simulates ListProducts
 \if :action = 10
-  SELECT id, name, description, price_currency_code, price_units, price_nanos 
-  FROM products 
-  ORDER BY created_at DESC 
+  SELECT id, name, description, price_currency_code, price_units, price_nanos
+  FROM products
+  ORDER BY created_at DESC
   LIMIT 50;
 \endif
 
 -- Product search (30% of queries) - simulates SearchProducts
 \if :action <= 3
-  SELECT id, name, description, price_currency_code, price_units, price_nanos 
-  FROM products 
+  SELECT id, name, description, price_currency_code, price_units, price_nanos
+  FROM products
   WHERE name ILIKE '%vintage%'
   LIMIT 20;
 \endif
@@ -165,11 +177,13 @@ EOF
 ```
 
 **Workload Design:**
+
 - **90% reads:** Single product lookups (realistic e-commerce pattern)
 - **10% scans:** Full table scans (expensive but necessary for listings)
 - **30% searches:** ILIKE queries with wildcard (index + sequential scan)
 
 **Why This Pattern?**
+
 - Mirrors real product-catalog query patterns
 - Creates sustained I/O pressure (not just connection holding)
 - Forces cache thrashing (random access pattern)
@@ -180,6 +194,7 @@ EOF
 ### Step 4: Copy Script to PostgreSQL Pod
 
 **Command:**
+
 ```bash
 POD=$(kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql -o jsonpath='{.items[0].metadata.name}')
 
@@ -194,6 +209,7 @@ kubectl exec -n otel-demo $POD -c postgresql -- ls -lh /tmp/products-load.sql
 ### Step 5: Launch Heavy IOPS Load
 
 **Command:**
+
 ```bash
 POD=$(kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql -o jsonpath='{.items[0].metadata.name}')
 
@@ -227,6 +243,7 @@ echo "Expected Blast Radius: PostgreSQL → product-catalog → frontend → use
 ```
 
 **pgbench Parameters:**
+
 - `-c 50`: 50 client connections (high concurrency)
 - `-j 4`: 4 worker threads
 - `-T 300`: Run for 300 seconds (5 minutes)
@@ -235,6 +252,7 @@ echo "Expected Blast Radius: PostgreSQL → product-catalog → frontend → use
 - `-U root otel`: Connect as root user to otel database
 
 **Expected Output:**
+
 ```
 🔥 STARTING HEAVY PRODUCTS TABLE IOPS TEST 🔥
 Configuration:
@@ -255,6 +273,7 @@ Expected Blast Radius: PostgreSQL → product-catalog → frontend → users
 #### 6.1 Watch Products Table I/O
 
 **Command:**
+
 ```bash
 POD=$(kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql -o jsonpath='{.items[0].metadata.name}')
 
@@ -264,20 +283,23 @@ watch -n 30 "kubectl exec -n otel-demo $POD -c postgresql -- \
 ```
 
 **Output at 1 minute:**
+
 ```
- relname  | disk_reads | cache_hits | idx_disk | idx_cache 
+ relname  | disk_reads | cache_hits | idx_disk | idx_cache
 ----------+------------+------------+----------+-----------
  products |        847 |   12000000 |      122 |   3000000
 ```
 
 **Output at 5 minutes:**
+
 ```
- relname  | disk_reads | cache_hits | idx_disk | idx_cache 
+ relname  | disk_reads | cache_hits | idx_disk | idx_cache
 ----------+------------+------------+----------+-----------
  products |        847 |   39317054 |      122 |   8164893
 ```
 
 **Analysis:**
+
 - **47+ million I/O operations** in 5 minutes
 - **969 disk reads** (cache misses)
 - **Exponential growth** in cache hits (queries executing)
@@ -285,14 +307,16 @@ watch -n 30 "kubectl exec -n otel-demo $POD -c postgresql -- \
 #### 6.2 Check Active Database Connections
 
 **Command:**
+
 ```bash
 kubectl exec -n otel-demo $POD -c postgresql -- \
   psql -U root -d otel -c "SELECT COUNT(*), state FROM pg_stat_activity WHERE datname='otel' GROUP BY state;"
 ```
 
 **Output:**
+
 ```
- count | state  
+ count | state
 -------+--------
     46 | idle
     12 | active
@@ -303,12 +327,14 @@ kubectl exec -n otel-demo $POD -c postgresql -- \
 #### 6.3 Watch Frontend Errors
 
 **Command:**
+
 ```bash
 # Watch frontend logs in real-time
 kubectl logs -n otel-demo -l app.kubernetes.io/component=frontend -f | grep -i "product\|error"
 ```
 
 **Output:**
+
 ```
 Error: 2 UNKNOWN: Exception calling application: <_InactiveRpcError of RPC that terminated with:
 	details = "Failed to list products: failed to query products: EOF"
@@ -324,12 +350,14 @@ Error: 2 UNKNOWN: failed to query product: pq: the database system is shutting d
 #### 6.4 Watch Product-Catalog Errors
 
 **Command:**
+
 ```bash
 # Watch product-catalog logs
 kubectl logs -n otel-demo -l app.kubernetes.io/component=product-catalog -f | grep -i "error\|failed"
 ```
 
 **Output:**
+
 ```
 ERROR: failed to query products: EOF
 ERROR: database/sql: connection refused
@@ -343,6 +371,7 @@ ERROR: pq: the database system is shutting down
 ### Step 7: Stop Test and Capture Final Statistics
 
 **Command:**
+
 ```bash
 POD=$(kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql -o jsonpath='{.items[0].metadata.name}')
 
@@ -359,8 +388,9 @@ echo "Stopped pgbench PID $PID"
 ```
 
 **Final Output:**
+
 ```
-     source     | total_disk_reads | total_cache_hits | cache_hit_ratio 
+     source     | total_disk_reads | total_cache_hits | cache_hit_ratio
 ----------------+------------------+------------------+-----------------
  Products Table |              969 |         64633945 |          100.00
 (1 row)
@@ -373,6 +403,7 @@ Stopped pgbench PID 102
 ### Step 8: Restore System to Healthy State
 
 **Command:**
+
 ```bash
 # Restore cache to 128MB
 kubectl patch configmap postgres-config -n otel-demo --type='json' \
@@ -395,13 +426,14 @@ kubectl exec -n otel-demo $POD -c postgresql -- \
 ```
 
 **Expected Output:**
+
 ```
- shared_buffers 
+ shared_buffers
 ----------------
  128MB
 (1 row)
 
-     status      | products 
+     status      | products
 -----------------+----------
  System Restored |     1510
 (1 row)
@@ -415,26 +447,26 @@ kubectl exec -n otel-demo $POD -c postgresql -- \
 
 ### Products Table Impact (5-minute test)
 
-| Metric | Value | Interpretation |
-|--------|-------|----------------|
-| **Total I/O Operations** | **64,633,945** | 64.6 MILLION operations! |
-| **Heap Cache Hits** | 39,317,054 | Table data reads |
-| **Index Cache Hits** | 8,164,893 | Index lookups |
-| **Heap Disk Reads** | 847 | Cache misses requiring disk I/O |
-| **Index Disk Reads** | 122 | Index cache misses |
-| **Total Disk Reads** | 969 | Actual disk operations |
-| **Cache Hit Ratio** | 100.00% | Hot data fits in cache despite small size |
-| **I/O Rate** | ~215,000 ops/sec | Sustained high volume |
+| Metric                   | Value            | Interpretation                            |
+| ------------------------ | ---------------- | ----------------------------------------- |
+| **Total I/O Operations** | **64,633,945**   | 64.6 MILLION operations!                  |
+| **Heap Cache Hits**      | 39,317,054       | Table data reads                          |
+| **Index Cache Hits**     | 8,164,893        | Index lookups                             |
+| **Heap Disk Reads**      | 847              | Cache misses requiring disk I/O           |
+| **Index Disk Reads**     | 122              | Index cache misses                        |
+| **Total Disk Reads**     | 969              | Actual disk operations                    |
+| **Cache Hit Ratio**      | 100.00%          | Hot data fits in cache despite small size |
+| **I/O Rate**             | ~215,000 ops/sec | Sustained high volume                     |
 
 ### Database-Wide Impact
 
-| Metric | Value |
-|--------|-------|
+| Metric                   | Value                      |
+| ------------------------ | -------------------------- |
 | **Total I/O Operations** | 66,480,750 (66.5 MILLION!) |
-| **Total Disk Reads** | 1,640 |
-| **Total Cache Hits** | 66,479,110 |
-| **Peak Connections** | 58 (46 idle + 12 active) |
-| **Active Queries** | 16 concurrent (sustained) |
+| **Total Disk Reads**     | 1,640                      |
+| **Total Cache Hits**     | 66,479,110                 |
+| **Peak Connections**     | 58 (46 idle + 12 active)   |
+| **Active Queries**       | 16 concurrent (sustained)  |
 
 ### Service Impact Chain
 
@@ -478,6 +510,7 @@ kubectl exec -n otel-demo $POD -c postgresql -- \
 ### Frontend Error Examples
 
 **Log Output:**
+
 ```
 Error: 2 UNKNOWN: Exception calling application: <_InactiveRpcError of RPC that terminated with:
 	status = StatusCode.INTERNAL
@@ -490,6 +523,7 @@ Error: 2 UNKNOWN: failed to query product: pq: the database system is shutting d
 ```
 
 **What Users See:**
+
 - Product listing pages: Empty or "Failed to load products"
 - Homepage: Missing product recommendations
 - Search results: "No products found" errors
@@ -498,6 +532,7 @@ Error: 2 UNKNOWN: failed to query product: pq: the database system is shutting d
 ### Product-Catalog Error Examples
 
 **Log Output:**
+
 ```
 2025/11/07 21:42:15 Failed to query products: EOF
 2025/11/07 21:42:16 database connection lost: EOF
@@ -507,6 +542,7 @@ Error: 2 UNKNOWN: failed to query product: pq: the database system is shutting d
 ```
 
 **Service Behavior:**
+
 - Connection pool (MaxOpenConns: 25) fully consumed
 - New queries block waiting for available connection
 - Existing connections timeout with EOF
@@ -518,6 +554,7 @@ Error: 2 UNKNOWN: failed to query product: pq: the database system is shutting d
 ## 🔍 **Why This Test Worked**
 
 ### 1. Cache Undersizing (22x!)
+
 ```
 Database Size: 704 MB
 Cache Size:     32 MB
@@ -527,6 +564,7 @@ Ratio:          4.5% (or 22x undersized)
 **Result:** Working set doesn't fit in cache → frequent disk access needed
 
 ### 2. High Query Volume
+
 ```
 Connections: 50 concurrent
 Duration:    5 minutes
@@ -536,6 +574,7 @@ Pattern:     90% reads, 10% scans, 30% searches
 **Result:** Even with 100% cache hit ratio, sheer volume creates pressure
 
 ### 3. Direct Table Targeting
+
 ```
 Target:     products table (8 MB)
 Queries:    Random access pattern (cache thrashing)
@@ -545,6 +584,7 @@ Dependency: product-catalog directly depends on this table
 **Result:** Clear path for blast radius observation
 
 ### 4. No Circuit Breakers
+
 ```
 Product-Catalog: No retry limits, no fallback caching
 Frontend:        Direct passthrough of gRPC errors
@@ -556,30 +596,32 @@ Frontend:        Direct passthrough of gRPC errors
 
 ## 📈 **Comparison: IOPS vs Connection Exhaustion**
 
-| Aspect | IOPS Pressure Test | Connection Exhaustion Test |
-|--------|-------------------|---------------------------|
-| **Tool** | Custom pgbench script | `postgres-chaos-scenarios.sh` |
-| **Method** | Active querying (50 connections) | Holding connections idle (92 connections) |
-| **Cache** | Reduced (32 MB) | Normal (128 MB) |
-| **Target** | Products table | All connections |
-| **Duration** | 5 minutes | 5 minutes |
-| **Error Signature** | EOF, "shutting down" | "too many clients already" |
-| **I/O Volume** | 64.6 MILLION operations | Normal (low) |
-| **Connection Count** | 58 total | 102/100 (over limit) |
-| **Accounting Impact** | ⚠️ Indirect | 🔥 Direct (can't write orders) |
-| **Product-Catalog Impact** | 🔥 Direct (target of load) | 🔥 Direct (can't get connections) |
-| **Frontend Impact** | 🔥 Product errors | 🔥 500/503 errors |
-| **Root Cause** | Database I/O overwhelmed | Connection limit exceeded |
-| **Real-World Analog** | RDS IOPS throttling | Connection pool sizing |
+| Aspect                     | IOPS Pressure Test               | Connection Exhaustion Test                |
+| -------------------------- | -------------------------------- | ----------------------------------------- |
+| **Tool**                   | Custom pgbench script            | `postgres-chaos-scenarios.sh`             |
+| **Method**                 | Active querying (50 connections) | Holding connections idle (92 connections) |
+| **Cache**                  | Reduced (32 MB)                  | Normal (128 MB)                           |
+| **Target**                 | Products table                   | All connections                           |
+| **Duration**               | 5 minutes                        | 5 minutes                                 |
+| **Error Signature**        | EOF, "shutting down"             | "too many clients already"                |
+| **I/O Volume**             | 64.6 MILLION operations          | Normal (low)                              |
+| **Connection Count**       | 58 total                         | 102/100 (over limit)                      |
+| **Accounting Impact**      | ⚠️ Indirect                      | 🔥 Direct (can't write orders)            |
+| **Product-Catalog Impact** | 🔥 Direct (target of load)       | 🔥 Direct (can't get connections)         |
+| **Frontend Impact**        | 🔥 Product errors                | 🔥 500/503 errors                         |
+| **Root Cause**             | Database I/O overwhelmed         | Connection limit exceeded                 |
+| **Real-World Analog**      | RDS IOPS throttling              | Connection pool sizing                    |
 
 ### Key Insight
 
 **Connection Exhaustion:**
+
 - Clear error: `FATAL: sorry, too many clients already`
 - Easy to diagnose (connection count visible)
 - Fix: Increase `max_connections` or reduce connection usage
 
 **IOPS Pressure:**
+
 - Ambiguous errors: `EOF`, `connection refused`, `shutting down`
 - Harder to diagnose (I/O metrics required)
 - Fix: Increase cache, optimize queries, or scale I/O capacity
@@ -593,6 +635,7 @@ Frontend:        Direct passthrough of gRPC errors
 ### Real-Time Monitoring Commands
 
 #### 1. Watch I/O Statistics
+
 ```bash
 POD=$(kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql -o jsonpath='{.items[0].metadata.name}')
 
@@ -601,17 +644,20 @@ watch -n 30 "kubectl exec -n otel-demo $POD -c postgresql -- \
 ```
 
 #### 2. Monitor Active Connections
+
 ```bash
 kubectl exec -n otel-demo $POD -c postgresql -- \
   psql -U root -d otel -c "SELECT COUNT(*) as total, state FROM pg_stat_activity WHERE datname='otel' GROUP BY state ORDER BY COUNT(*) DESC;"
 ```
 
 #### 3. Count Frontend Errors
+
 ```bash
 kubectl logs -n otel-demo -l app.kubernetes.io/component=frontend --since=5m | grep -c "Failed to list products"
 ```
 
 #### 4. Count Product-Catalog Errors
+
 ```bash
 kubectl logs -n otel-demo -l app.kubernetes.io/component=product-catalog --since=5m | grep -c "EOF\|shutting down"
 ```
@@ -619,6 +665,7 @@ kubectl logs -n otel-demo -l app.kubernetes.io/component=product-catalog --since
 ### Honeycomb Queries
 
 #### Products Table I/O Activity
+
 ```
 DATASET: opentelemetry-demo
 WHERE: postgresql.table = "products"
@@ -630,6 +677,7 @@ TIME RANGE: Last 10 minutes
 ```
 
 #### Database Cache Hit Ratio
+
 ```
 DATASET: opentelemetry-demo
 WHERE: postgresql.blks_hit EXISTS OR postgresql.blks_read EXISTS
@@ -641,10 +689,11 @@ TIME RANGE: Last 10 minutes
 ```
 
 #### Frontend Product Errors
+
 ```
 DATASET: opentelemetry-demo
-WHERE: service.name = "frontend" 
-  AND (error CONTAINS "Failed to list products" 
+WHERE: service.name = "frontend"
+  AND (error CONTAINS "Failed to list products"
     OR error CONTAINS "failed to query product")
 VISUALIZE: COUNT
 BREAKDOWN: error
@@ -653,6 +702,7 @@ TIME RANGE: Last 10 minutes
 ```
 
 #### Product-Catalog Query Latency
+
 ```
 DATASET: opentelemetry-demo
 WHERE: service.name = "product-catalog" AND db.statement EXISTS
@@ -680,18 +730,21 @@ The test was successful because we observed:
 ## 🚨 **Important Notes**
 
 ### Do NOT Run This Test If:
+
 - ❌ PostgreSQL does NOT have persistent storage (data will be lost)
 - ❌ Database has production-critical data (use test environment)
 - ❌ You need the system to be fully operational during test
 - ❌ You don't have monitoring/observability in place
 
 ### Safe to Run If:
+
 - ✅ PostgreSQL has PVC attached (data persists)
 - ✅ This is a demo/test environment
 - ✅ You can tolerate 5 minutes of degraded service
 - ✅ You have Honeycomb or similar monitoring
 
 ### Recovery Time
+
 - **Immediate** once cache is restored (128MB)
 - **No manual intervention** required for services
 - **No data loss** with PVC configured
@@ -711,18 +764,21 @@ The test was successful because we observed:
 ## 🎓 **Key Takeaways**
 
 ### For SREs/Platform Engineers:
+
 1. **Cache sizing matters** - Even 4x undersizing creates observable impact
 2. **I/O volume ≠ cache hit ratio** - Can have 100% hit ratio but still overwhelm system
 3. **Connection pools have limits** - 25 MaxOpenConns exhausted under load
 4. **Blast radius is real** - Database issues cascade to users
 
 ### For Developers:
+
 1. **EOF errors indicate** - Database connection failures, not application bugs
 2. **Retry logic needs limits** - Infinite retries amplify problem
 3. **Error propagation is good** - Clear errors help diagnose issues
 4. **Connection pooling works** - Prevented complete failure
 
 ### For Chaos Engineering:
+
 1. **Cache reduction is effective** - Demonstrates I/O pressure clearly
 2. **Targeting tables works** - Products table directly impacts product-catalog
 3. **pgbench is powerful** - Custom workloads create realistic scenarios
@@ -748,6 +804,7 @@ A: **NO!** This is for demo/test environments only. It causes real service degra
 
 **Q: How do I know if my monitoring caught everything?**  
 A: Check Honeycomb for:
+
 - Error count spike during test window
 - Latency increase (P95/P99)
 - Connection count metrics
@@ -783,4 +840,3 @@ User-Facing Product Browsing Failures
 **Related Tests:** Connection Exhaustion, Table Lock, Slow Query  
 **Script Location:** `infra/postgres-chaos/postgres-chaos-scenarios.sh`  
 **For Questions:** See related documentation in `infra/postgres-chaos/docs/`
-
