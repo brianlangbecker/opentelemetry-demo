@@ -1,15 +1,15 @@
 #!/bin/bash
-# Simple pgbench runner - executes inside the PostgreSQL pod
+# PostgreSQL Load Testing & Chaos Scenarios - executes inside the PostgreSQL pod
 #
 # Usage:
-#   ./pgbench.sh light              # 10k transactions (~30s)
-#   ./pgbench.sh normal             # 500k transactions (~5-10 min)
-#   ./pgbench.sh beast              # 5M transactions per client (~30+ min)
-#   ./pgbench.sh accounting         # Target accounting tables (REAL blast radius)
-#   ./pgbench.sh connection-exhaust # Exhaust connection pool
-#   ./pgbench.sh table-lock         # Lock critical table
-#   ./pgbench.sh slow-query         # Run expensive queries
-#   ./pgbench.sh demo               # Run all scenarios sequentially
+#   ./postgres-chaos-scenarios.sh light              # 10k transactions (~30s)
+#   ./postgres-chaos-scenarios.sh normal             # 500k transactions (~5-10 min)
+#   ./postgres-chaos-scenarios.sh beast              # 5M transactions per client (~30+ min)
+#   ./postgres-chaos-scenarios.sh accounting         # Target accounting tables (REAL blast radius)
+#   ./postgres-chaos-scenarios.sh connection-exhaust # Exhaust connection pool
+#   ./postgres-chaos-scenarios.sh table-lock         # Lock critical table
+#   ./postgres-chaos-scenarios.sh slow-query         # Run expensive queries
+#   ./postgres-chaos-scenarios.sh demo               # Run all scenarios sequentially
 #
 
 set -e
@@ -312,11 +312,18 @@ echo $! > /tmp/table-lock.pid
         exit 0
         ;;
     slow-query)
-        echo -e "${RED}Scenario: SLOW QUERY / FULL TABLE SCAN${NC}"
-        echo "  - Runs expensive full table scan queries"
-        echo "  - 20 clients running for 5 minutes"
-        echo "  - Purpose: Create query-level slowdown"
-        echo "  - Expected: High CPU, slow query times, no connection errors"
+        echo -e "${RED}Scenario: SLOW QUERY / FULL TABLE SCAN - PRODUCTS TABLE${NC}"
+        echo "  - Runs expensive queries on PRODUCTS table (product-catalog impact!)"
+        echo "  - 30 clients running for 30 minutes"
+        echo "  - Purpose: Create query-level slowdown, high CPU usage"
+        echo "  - Expected: High CPU, slow query times, product-catalog latency spikes"
+        echo ""
+        echo -e "${YELLOW}Blast radius cascade:${NC}"
+        echo "  1. PRODUCTS table → full table scans with aggregations"
+        echo "  2. Product-catalog → slow db.products.list, db.product.get queries"
+        echo "  3. Checkout → product lookup slowdowns"
+        echo "  4. Frontend → slow page loads"
+        echo "  5. Database → High CPU (80-100%)"
         echo ""
         read -p "Continue? (y/n) " -n 1 -r
         echo ""
@@ -325,47 +332,67 @@ echo $! > /tmp/table-lock.pid
             exit 0
         fi
 
-        # Check if pgbench tables exist
-        if ! kubectl exec -n otel-demo $POD -- psql -U root otel -c "\d pgbench_accounts" >/dev/null 2>&1; then
-            echo -e "${YELLOW}pgbench tables not found. Initializing with large dataset...${NC}"
-            kubectl exec -n otel-demo $POD -- pgbench -i -s 100 -U root otel
-        fi
+        echo -e "${BLUE}Running expensive queries on products table for 30 minutes...${NC}"
+        echo "Monitor in Honeycomb:"
+        echo "  - product-catalog: db.products.list, db.product.get duration spikes"
+        echo "  - checkout: oteldemo.ProductCatalogService/GetProduct latency"
+        echo "  - PostgreSQL CPU: should reach 80-100%"
+        echo ""
 
-        echo -e "${BLUE}Running expensive queries for 5 minutes...${NC}"
-        echo "Monitor in Honeycomb: Watch for query duration spikes"
-
-        # Create custom pgbench script with expensive queries
+        # Create custom pgbench script with expensive queries on products table
         kubectl exec -n otel-demo $POD -- bash -c "cat > /tmp/slow-query.sql <<'EOSQL'
--- Full table scan with aggregation
+-- Full table scan with aggregation on products
 SELECT
-    COUNT(*),
-    AVG(abalance),
-    SUM(abalance),
-    MAX(abalance),
-    MIN(abalance)
-FROM pgbench_accounts
-WHERE abalance > 0;
+    COUNT(*) as total_products,
+    AVG(price_units) as avg_price,
+    SUM(price_units) as total_value,
+    MAX(price_units) as max_price,
+    MIN(price_units) as min_price,
+    COUNT(DISTINCT categories) as category_count
+FROM products
+WHERE price_units > 0;
 
--- Cross join simulation (expensive)
-SELECT COUNT(*)
-FROM pgbench_accounts a, pgbench_branches b
-WHERE a.bid = b.bid;
+-- Expensive LIKE query (no index)
+SELECT * FROM products
+WHERE name LIKE '%a%' OR description LIKE '%the%'
+ORDER BY price_units DESC;
 
--- Sort entire table
-SELECT * FROM pgbench_accounts ORDER BY abalance DESC LIMIT 1000;
+-- Cross join with categories expansion
+SELECT
+    p.id,
+    p.name,
+    unnest(p.categories) as category,
+    p.price_units
+FROM products p
+ORDER BY p.price_units DESC;
+
+-- Sort entire table with string operations
+SELECT
+    UPPER(name) as product_name,
+    LENGTH(description) as desc_length,
+    array_length(categories, 1) as num_categories,
+    price_units
+FROM products
+ORDER BY LENGTH(description) DESC, price_units DESC;
 EOSQL
 "
 
         kubectl exec -n otel-demo $POD -- pgbench \
-            -c 20 \
-            -T 300 \
+            -c 30 \
+            -T 1800 \
             -f /tmp/slow-query.sql \
             -P 10 \
             -r \
             -U root \
             otel
 
+        echo ""
         echo -e "${GREEN}Slow query test complete!${NC}"
+        echo ""
+        echo "Check Honeycomb for:"
+        echo "  ✓ product-catalog spans: db.products.list, db.query.execute duration spikes"
+        echo "  ✓ Database CPU usage: should have peaked at 80-100%"
+        echo "  ✓ Frontend: slower product browsing"
         exit 0
         ;;
     demo)

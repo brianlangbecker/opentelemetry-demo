@@ -9,7 +9,7 @@ This document outlines the recommended approach for database load testing in the
 We use **two complementary tools** for PostgreSQL testing:
 
 1. **postgres-seed/** - Database initialization and seeding
-2. **pgbench.sh** - High-performance load testing
+2. **postgres-chaos-scenarios.sh** - High-performance load testing and chaos scenarios
 
 ---
 
@@ -20,11 +20,13 @@ We use **two complementary tools** for PostgreSQL testing:
 **Purpose:** Initialize the database with realistic test data
 
 **Files:**
+
 - `seed-simple.sql` - Minimal dataset for basic testing
 - `seed-150k.sql` - Large dataset (150,000 orders) for realistic load
 - `complete-seed.sql` - Full schema and comprehensive data
 
 **Usage:**
+
 ```bash
 cd infra/postgres-seed/
 
@@ -39,19 +41,19 @@ kubectl exec -n otel-demo $POD -- psql -U root otel < seed-150k.sql
 
 ## 2. Load Testing with pgbench
 
-**Location:** `infra/pgbench/pgbench.sh`
+**Location:** `infra/postgres-chaos/postgres-chaos-scenarios.sh`
 
 **Purpose:** Generate high transaction volume to stress-test the database
 
 **Why pgbench over SQL chaos scripts?**
 
-| Metric | SQL Chaos Scripts | pgbench |
-|--------|------------------|---------|
-| **TPS** | 10-50 | 3,000-50,000 |
-| **Speed** | Slow (single connection) | Fast (connection pooling) |
-| **Realism** | Chaos patterns | Industry-standard TPC-B |
-| **Observability** | Good | Excellent |
-| **Simplicity** | Complex | Simple |
+| Metric            | SQL Chaos Scripts        | pgbench                   |
+| ----------------- | ------------------------ | ------------------------- |
+| **TPS**           | 10-50                    | 3,000-50,000              |
+| **Speed**         | Slow (single connection) | Fast (connection pooling) |
+| **Realism**       | Chaos patterns           | Industry-standard TPC-B   |
+| **Observability** | Good                     | Excellent                 |
+| **Simplicity**    | Complex                  | Simple                    |
 
 ---
 
@@ -68,9 +70,9 @@ cd ..
 
 # 2. Run load test
 cd pgbench/
-./pgbench.sh light    # Quick 30-second test
-./pgbench.sh normal   # 5-10 minute stress test
-./pgbench.sh beast    # 30+ minute extreme load (may crash pod)
+./postgres-chaos-scenarios.sh light    # Quick 30-second test
+./postgres-chaos-scenarios.sh normal   # 5-10 minute stress test
+./postgres-chaos-scenarios.sh beast    # 30+ minute extreme load (may crash pod)
 ```
 
 ---
@@ -78,17 +80,19 @@ cd pgbench/
 ## Load Testing Scenarios
 
 ### Development Testing
+
 ```bash
-cd infra/pgbench/
+cd infra/postgres-chaos/
 # Quick verification that everything works
-./pgbench.sh light
+./postgres-chaos-scenarios.sh light
 ```
 
 ### Demo Preparation
+
 ```bash
-cd infra/pgbench/
+cd infra/postgres-chaos/
 # Moderate load that shows metrics without crashing
-echo "y" | ./pgbench.sh normal &
+echo "y" | ./postgres-chaos-scenarios.sh normal &
 
 # Open Honeycomb and watch:
 # - CPU climbing to 60-80%
@@ -97,10 +101,11 @@ echo "y" | ./pgbench.sh normal &
 ```
 
 ### Chaos Engineering
+
 ```bash
-cd infra/pgbench/
+cd infra/postgres-chaos/
 # Extreme load designed to trigger failures
-echo "y" | ./pgbench.sh beast
+echo "y" | ./postgres-chaos-scenarios.sh beast
 
 # Expected outcomes:
 # - CPU at 100%
@@ -117,6 +122,7 @@ echo "y" | ./pgbench.sh beast
 ### Metrics to Track
 
 **System Metrics:**
+
 ```
 Dataset: Metrics
 WHERE service.name = "postgresql"
@@ -124,6 +130,7 @@ Calculate: AVG(system.cpu.utilization), AVG(system.memory.usage)
 ```
 
 **Kubernetes Events:**
+
 ```
 Dataset: k8s-events
 WHERE k8s.pod.name contains "postgresql"
@@ -132,6 +139,7 @@ WHERE k8s.pod.name contains "postgresql"
 ```
 
 **Application Impact:**
+
 ```
 Dataset: frontend, cart, checkout
 WHERE db.system = "postgresql"
@@ -144,11 +152,13 @@ GROUP BY service.name
 ## Migration from SQL Chaos Scripts
 
 **What changed:**
+
 - ❌ **Removed:** `postgres-chaos/` directory (beast-mode-chaos.sql, etc.)
 - ✅ **Kept:** `postgres-seed/` directory (database initialization)
 - ✅ **Added:** `pgbench.sh` (high-performance load testing)
 
 **Why?**
+
 - pgbench is **100-1000x faster** (3,000+ TPS vs 10-50 TPS)
 - **Industry standard** PostgreSQL benchmarking tool
 - **Simpler** - no complex SQL scripts, runs inside the pod
@@ -159,6 +169,7 @@ GROUP BY service.name
 ## Best Practices
 
 ### 1. Always Seed First
+
 ```bash
 # Seed database before running load tests
 cd postgres-seed/
@@ -166,30 +177,34 @@ kubectl exec -n otel-demo $POD -- psql -U root otel < seed-150k.sql
 ```
 
 ### 2. Start Small
+
 ```bash
-cd infra/pgbench/
+cd infra/postgres-chaos/
 # Verify everything works before running beast mode
-./pgbench.sh light
+./postgres-chaos-scenarios.sh light
 ```
 
 ### 3. Monitor Resource Usage
+
 ```bash
 # Watch pod resource consumption during tests
 kubectl top pod -n otel-demo -l app.kubernetes.io/component=postgresql --watch
 ```
 
 ### 4. Check Table Status
+
 ```bash
-cd infra/pgbench/
+cd infra/postgres-chaos/
 # Verify pgbench tables are initialized
-./pgbench.sh status
+./postgres-chaos-scenarios.sh status
 ```
 
 ### 5. Clean Up After Testing
+
 ```bash
-cd infra/pgbench/
+cd infra/postgres-chaos/
 # Remove pgbench tables when done
-./pgbench.sh clean
+./postgres-chaos-scenarios.sh clean
 ```
 
 ---
@@ -197,13 +212,15 @@ cd infra/pgbench/
 ## Troubleshooting
 
 ### "Table does not exist" Error
+
 ```bash
-cd infra/pgbench/
+cd infra/postgres-chaos/
 # Initialize pgbench tables
-./pgbench.sh init
+./postgres-chaos-scenarios.sh init
 ```
 
 ### Low Transaction Rate
+
 ```bash
 # Check if pod is resource-constrained
 kubectl describe pod -n otel-demo -l app.kubernetes.io/component=postgresql
@@ -217,6 +234,7 @@ postgresql:
 ```
 
 ### Pod Keeps Crashing
+
 ```bash
 # This is expected during beast mode!
 # Check termination reason:
@@ -230,22 +248,22 @@ kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql \
 
 ## Documentation
 
-- **pgbench details:** See `PGBENCH-README.md`
+- **PostgreSQL chaos testing details:** See `POSTGRES-CHAOS-README.md`
 - **Seed scripts:** See `postgres-seed/README.md`
 
 ---
 
 ## Summary
 
-| Task | Tool | Command |
-|------|------|---------|
+| Task          | Tool          | Command                                 |
+| ------------- | ------------- | --------------------------------------- |
 | Initialize DB | postgres-seed | `kubectl exec ... psql < seed-150k.sql` |
-| Quick test | pgbench | `./pgbench.sh light` |
-| Demo load | pgbench | `./pgbench.sh normal` |
-| Chaos test | pgbench | `./pgbench.sh beast` |
-| Check status | pgbench | `./pgbench.sh status` |
-| Cleanup | pgbench | `./pgbench.sh clean` |
+| Quick test    | pgbench       | `./postgres-chaos-scenarios.sh light`   |
+| Demo load     | pgbench       | `./postgres-chaos-scenarios.sh normal`  |
+| Chaos test    | pgbench       | `./postgres-chaos-scenarios.sh beast`   |
+| Check status  | pgbench       | `./postgres-chaos-scenarios.sh status`  |
+| Cleanup       | pgbench       | `./postgres-chaos-scenarios.sh clean`   |
 
 ---
 
-**Ready to test?** Start with `cd infra/pgbench/ && ./pgbench.sh light` and work your way up! 🚀
+**Ready to test?** Start with `cd infra/postgres-chaos/ && ./postgres-chaos-scenarios.sh light` and work your way up! 🚀

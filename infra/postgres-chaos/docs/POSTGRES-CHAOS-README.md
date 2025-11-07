@@ -1,6 +1,6 @@
-# pgbench PostgreSQL Load Testing
+# PostgreSQL Chaos Testing & Load Generation
 
-High-performance database load generator using PostgreSQL's built-in `pgbench` tool. Runs **directly inside the PostgreSQL pod** for maximum performance and simplicity.
+Comprehensive PostgreSQL chaos testing and load generation using `pgbench` - PostgreSQL's built-in benchmarking tool. Runs **directly inside the PostgreSQL pod** for maximum performance and simplicity.
 
 ## Why pgbench?
 
@@ -16,25 +16,25 @@ High-performance database load generator using PostgreSQL's built-in `pgbench` t
 ## Quick Start
 
 ```bash
-cd infra/
+cd infra/postgres-chaos/
 
 # Light load - quick test (30 seconds)
-./pgbench.sh light
+./postgres-chaos-scenarios.sh light
 
 # Normal load - moderate stress (5-10 minutes)
-./pgbench.sh normal
+./postgres-chaos-scenarios.sh normal
 
 # BEAST MODE - maximum stress (30+ minutes)
-./pgbench.sh beast
+./postgres-chaos-scenarios.sh beast
 
 # Initialize tables manually
-./pgbench.sh init
+./postgres-chaos-scenarios.sh init
 
 # Check table status
-./pgbench.sh status
+./postgres-chaos-scenarios.sh status
 
 # Clean up tables
-./pgbench.sh clean
+./postgres-chaos-scenarios.sh clean
 ```
 
 ---
@@ -42,6 +42,7 @@ cd infra/
 ## Load Levels
 
 ### ⚡ **Light** (Quick Test)
+
 ```
 Duration: ~30 seconds
 Clients: 10
@@ -51,6 +52,7 @@ Use case: Quick verification that load testing works
 ```
 
 ### 🔥 **Normal** (Moderate Load)
+
 ```
 Duration: ~5-10 minutes
 Clients: 50
@@ -60,6 +62,7 @@ Use case: Standard load testing, observe latency under pressure
 ```
 
 ### 💀 **Beast** (Maximum Load)
+
 ```
 Duration: ~30+ minutes
 Clients: 100
@@ -95,14 +98,15 @@ Statement latencies:
 
 pgbench creates standard TPC-B benchmark tables:
 
-| Table | Scale 10 | Scale 100 | Scale 200 |
-|-------|----------|-----------|-----------|
-| pgbench_accounts | 1M rows | 10M rows | 20M rows |
-| pgbench_branches | 10 rows | 100 rows | 200 rows |
-| pgbench_tellers | 100 rows | 1,000 rows | 2,000 rows |
-| pgbench_history | growing | growing | growing |
+| Table            | Scale 10 | Scale 100  | Scale 200  |
+| ---------------- | -------- | ---------- | ---------- |
+| pgbench_accounts | 1M rows  | 10M rows   | 20M rows   |
+| pgbench_branches | 10 rows  | 100 rows   | 200 rows   |
+| pgbench_tellers  | 100 rows | 1,000 rows | 2,000 rows |
+| pgbench_history  | growing  | growing    | growing    |
 
 **Transaction Simulation (per txn):**
+
 ```sql
 BEGIN;
 UPDATE pgbench_accounts SET abalance = abalance + :delta WHERE aid = :aid;
@@ -120,6 +124,7 @@ END;
 Once pgbench is running, check Honeycomb for:
 
 ### **Metrics Dataset**
+
 ```
 WHERE service.name = "postgresql"
 GROUP BY k8s.pod.name
@@ -127,6 +132,7 @@ Calculate: AVG(system.cpu.utilization), AVG(system.memory.usage)
 ```
 
 ### **k8s-events Dataset**
+
 ```
 WHERE k8s.pod.name contains "postgresql"
   AND (k8s.container.last_terminated.reason = "OOMKilled"
@@ -135,6 +141,7 @@ WHERE k8s.pod.name contains "postgresql"
 ```
 
 ### **PostgreSQL Logs** (if instrumented)
+
 ```
 WHERE service.name = "postgresql"
 GROUP BY severity_text
@@ -145,14 +152,14 @@ Calculate: COUNT
 
 ## Expected Metrics During Load
 
-| Metric | Light | Normal | Beast |
-|--------|-------|--------|-------|
-| TPS | 3,000-5,000 | 10,000-20,000 | 20,000-50,000+ |
-| CPU Usage | 20-40% | 60-80% | 90-100% |
-| Memory | Stable | Growing | OOMKill risk |
-| Latency (P95) | <10ms | 10-50ms | 50-500ms+ |
-| Connection count | 10 | 50 | 100 |
-| Disk I/O | Low | Medium | Very High |
+| Metric           | Light       | Normal        | Beast          |
+| ---------------- | ----------- | ------------- | -------------- |
+| TPS              | 3,000-5,000 | 10,000-20,000 | 20,000-50,000+ |
+| CPU Usage        | 20-40%      | 60-80%        | 90-100%        |
+| Memory           | Stable      | Growing       | OOMKill risk   |
+| Latency (P95)    | <10ms       | 10-50ms       | 50-500ms+      |
+| Connection count | 10          | 50            | 100            |
+| Disk I/O         | Low         | Medium        | Very High      |
 
 ---
 
@@ -232,10 +239,10 @@ kubectl exec -n otel-demo $POD -- psql -U root otel -c "SELECT pg_size_pretty(pg
 
 ```bash
 # Check if tables exist
-./pgbench.sh status
+./postgres-chaos-scenarios.sh status
 
 # Initialize tables manually
-./pgbench.sh init
+./postgres-chaos-scenarios.sh init
 ```
 
 ### PostgreSQL Crashes During Test
@@ -257,6 +264,7 @@ kubectl get events -n otel-demo --sort-by='.lastTimestamp' | grep postgresql
 ### Performance Lower Than Expected
 
 **CPU throttling:**
+
 ```bash
 # Check resource limits
 kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql \
@@ -264,30 +272,31 @@ kubectl get pod -n otel-demo -l app.kubernetes.io/component=postgresql \
 ```
 
 **Increase resources** in `otel-demo-values.yaml`:
+
 ```yaml
 postgresql:
   resources:
     limits:
-      memory: "2Gi"    # Increase for better caching
-      cpu: "4000m"     # Increase for more TPS
+      memory: '2Gi' # Increase for better caching
+      cpu: '4000m' # Increase for more TPS
     requests:
-      memory: "1Gi"
-      cpu: "2000m"
+      memory: '1Gi'
+      cpu: '2000m'
 ```
 
 ---
 
 ## Comparison: pgbench vs SQL Chaos Scripts
 
-| Feature | SQL Scripts | pgbench |
-|---------|-------------|---------|
-| Speed | 10-50 TPS | 3,000-50,000 TPS |
-| Transactions | Thousands | Millions |
-| Duration | 30+ minutes | 5-30 minutes |
-| Resource usage | Medium | Very High |
-| Type of load | Bloat/locks | Transactional |
-| Observability | Good | Excellent |
-| Crash likelihood | Low | High (Beast mode) |
+| Feature          | SQL Scripts | pgbench           |
+| ---------------- | ----------- | ----------------- |
+| Speed            | 10-50 TPS   | 3,000-50,000 TPS  |
+| Transactions     | Thousands   | Millions          |
+| Duration         | 30+ minutes | 5-30 minutes      |
+| Resource usage   | Medium      | Very High         |
+| Type of load     | Bloat/locks | Transactional     |
+| Observability    | Good        | Excellent         |
+| Crash likelihood | Low         | High (Beast mode) |
 
 **Use SQL scripts for:** Bloat testing, vacuum testing, long-running query analysis
 **Use pgbench for:** High TPS load, connection stress, crash testing, realistic workload
@@ -302,7 +311,7 @@ POD=$(kubectl get pods -n otel-demo -l app.kubernetes.io/component=postgresql -o
 kubectl exec -n otel-demo $POD -- pkill pgbench
 
 # Drop pgbench tables
-./pgbench.sh clean
+./postgres-chaos-scenarios.sh clean
 ```
 
 ---
@@ -315,7 +324,7 @@ Perfect for showing database observability in real-time:
 # 1. Open Honeycomb dashboard (PostgreSQL metrics)
 
 # 2. Start load in background
-echo "y" | ./pgbench.sh normal &
+echo "y" | ./postgres-chaos-scenarios.sh normal &
 
 # 3. Watch metrics climb in Honeycomb
 #    - CPU usage increasing
@@ -323,7 +332,7 @@ echo "y" | ./pgbench.sh normal &
 #    - Latency growing
 
 # 4. For chaos demo, run Beast mode
-echo "y" | ./pgbench.sh beast
+echo "y" | ./postgres-chaos-scenarios.sh beast
 
 # 5. Watch PostgreSQL pod crash and restart
 kubectl get pods -n otel-demo -w
@@ -344,4 +353,4 @@ kubectl get pods -n otel-demo -w
 4. When ready, unleash Beast Mode and watch the chaos
 5. Use for demos to show real-time database observability
 
-**Pro tip:** Run `./pgbench.sh normal` during demos to show realistic database performance metrics without crashing the system!
+**Pro tip:** Run `./postgres-chaos-scenarios.sh normal` during demos to show realistic database performance metrics without crashing the system!

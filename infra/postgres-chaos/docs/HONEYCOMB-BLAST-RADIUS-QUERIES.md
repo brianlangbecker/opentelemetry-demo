@@ -19,6 +19,7 @@ This guide shows you exactly which Honeycomb queries to run to trace the **blast
 ## The Investigation Flow
 
 ### Start: User Reports Slow Checkout
+
 1. Confirm the symptom (checkout latency)
 2. Identify the bottleneck (Kafka producer)
 3. Trace to consumer (accounting service)
@@ -42,11 +43,13 @@ Time: Last 2 hours
 **Query URL:** https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/7AfTcmyti5A
 
 **What to look for:**
+
 - **Normal:** P50 < 100ms, P95 < 500ms
 - **Degraded:** P50 > 1,000ms, P95 > 2,000ms
 - **Critical:** P50 > 2,000ms, MAX > 5,000ms
 
 **Example Results (During Database Bloat):**
+
 ```
 P50:   1,677ms  (40x slower than normal!)
 P95:   3,962ms
@@ -55,6 +58,7 @@ MAX:   7,800ms
 ```
 
 **Interpretation:**
+
 - If latency is high but no errors, look for downstream bottlenecks
 - Check Kafka producer duration next
 
@@ -75,11 +79,13 @@ Time: Last 24 hours
 **Query URL:** https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/pcpDyQBdhnH
 
 **What to look for:**
+
 - Sudden spikes in latency
 - Correlation with pgbench runs
 - Time correlation with database issues
 
 **Example Pattern:**
+
 ```
 Before 02:00: P95 ~200ms (normal)
 After 02:00:  P95 ~4,000ms (degraded)
@@ -106,11 +112,13 @@ Time: Last 2 hours
 **Query URL:** https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/rUQTsn2LwKn
 
 **What to look for:**
+
 - Does Kafka producer duration match overall checkout latency?
 - If YES: Problem is downstream (Kafka/accounting)
 - If NO: Problem is in checkout itself
 
 **Example Results (During Database Bloat):**
+
 ```
 P95:   3,880ms  (matches checkout latency!)
 P99:   4,827ms
@@ -118,6 +126,7 @@ MAX:   7,765ms
 ```
 
 **Interpretation:**
+
 - Kafka publish takes 4-8 seconds (normally <100ms)
 - This accounts for almost all of checkout latency
 - Bottleneck is in Kafka or its consumer (accounting)
@@ -139,16 +148,19 @@ Time: Last 2 hours
 **Query URL:** https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/CeWHuPF2F88
 
 **What to look for:**
+
 - 100% success rate = slow but working (backpressure)
 - Failures = Kafka broker issues or network problems
 
 **Example Results:**
+
 ```
 Success: 21,814 messages (100%)
 P95:     3,882ms
 ```
 
 **Interpretation:**
+
 - No failures, just extreme slowness
 - This is **backpressure** - consumer can't keep up
 - Next: Check accounting service
@@ -171,11 +183,13 @@ Time: Last 2 hours
 **Query URL:** https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/accounting/result/pPfKQbE1faJ
 
 **What to look for:**
+
 - **Normal:** P95 < 10ms, MAX < 100ms
 - **Slow queries:** P95 > 100ms, MAX > 1,000ms
 - **Critical:** MAX > 10,000ms (10+ seconds)
 
 **Example Results (During Database Bloat):**
+
 ```
 COUNT: 48,785 queries
 P95:   2.72ms
@@ -183,6 +197,7 @@ MAX:   30,027ms (30 seconds!)
 ```
 
 **Interpretation:**
+
 - Most queries are fast (P95 = 2.72ms)
 - But some queries take 30+ seconds
 - This causes Kafka consumer lag
@@ -205,11 +220,13 @@ Time: Last 2 hours
 ```
 
 **What to look for:**
+
 - Which SQL statements have MAX > 1,000ms?
 - Are they INSERT, SELECT, UPDATE?
 - This tells you what operations are blocked
 
 **Example Results (During Table Lock):**
+
 ```
 Statement: INSERT INTO "order"... batch of 9 orders
 MAX:       30,014ms (30 seconds!)
@@ -217,6 +234,7 @@ COUNT:     4 queries blocked
 ```
 
 **Interpretation:**
+
 - INSERT statements are blocked
 - Likely table lock or resource contention
 - Next: Check database itself
@@ -236,11 +254,13 @@ Time: Last 2 hours
 ```
 
 **What to look for:**
+
 - **Connection errors:** "too many clients" = connection exhaustion
 - **Timeout errors:** = lock contention or slow queries
 - **No errors but slow:** = resource constraints (memory, disk I/O)
 
 **Example Results (During Table Lock):**
+
 ```
 Errors:    18
 Successes: 7,686
@@ -249,6 +269,7 @@ Types:     Npgsql.PostgresException, System.InvalidOperationException
 ```
 
 **Interpretation:**
+
 - Low error rate but high latency
 - Not connection exhaustion (would be >50% errors)
 - Likely lock contention or resource issue
@@ -272,11 +293,13 @@ Time: Last 2 hours
 ```
 
 **What to look for:**
+
 - **CPU > 80%:** Query performance issue (full table scans)
 - **Memory high:** Potential memory pressure
 - **Disk usage > 50%:** Potential bloat issue
 
 **Note:** If metrics aren't available, check directly via kubectl:
+
 ```bash
 # Check database size
 kubectl exec -n otel-demo <POD> -c postgresql -- \
@@ -296,40 +319,51 @@ kubectl exec -n otel-demo <POD> -c postgresql -- \
 ## Putting It All Together: Diagnosis Decision Tree
 
 ### Step 1: Confirm User Impact
+
 Run Query 1 (Checkout latency)
+
 - Normal (<100ms P50)? → No issue, stop here
 - Degraded (>1s P50)? → Continue to Step 2
 
 ### Step 2: Identify Bottleneck
+
 Run Query 3 (Kafka producer duration)
+
 - Matches checkout latency? → Bottleneck is Kafka/downstream (Step 3)
 - Much lower than checkout? → Bottleneck is in checkout itself (check other checkout spans)
 
 ### Step 3: Check Message Consumer
+
 Run Query 5 (Accounting database performance)
+
 - MAX > 10s? → Database issue (Step 4)
 - Errors > 10%? → Check error type:
-  - "too many clients" → Connection exhaustion (see DATABASE-FAILURE-SCENARIOS.md)
+  - "too many clients" → Connection exhaustion (see POSTGRES-CHAOS-SCENARIOS.md)
   - Timeout errors → Lock contention (Step 4)
 
 ### Step 4: Diagnose Database Root Cause
+
 Run Query 8 (PostgreSQL metrics) or kubectl checks
 
 **High CPU (>80%):**
+
 - Root Cause: Expensive queries (full table scans)
-- See: DATABASE-FAILURE-SCENARIOS.md → Slow Query scenario
+- See: POSTGRES-CHAOS-SCENARIOS.md → Slow Query scenario
 
 **Low CPU (<30%) + High query duration:**
+
 - Root Cause: Lock contention
-- See: DATABASE-FAILURE-SCENARIOS.md → Table Lock scenario
+- See: POSTGRES-CHAOS-SCENARIOS.md → Table Lock scenario
 
 **Normal CPU + Large database size:**
+
 - Root Cause: Database bloat, memory pressure
 - See: DATABASE-BLOAT-INCIDENT.md
 
 **Connection errors:**
+
 - Root Cause: Connection pool exhaustion
-- See: DATABASE-FAILURE-SCENARIOS.md → Connection Exhaustion scenario
+- See: POSTGRES-CHAOS-SCENARIOS.md → Connection Exhaustion scenario
 
 ---
 
@@ -338,6 +372,7 @@ Run Query 8 (PostgreSQL metrics) or kubectl checks
 ### Pattern 1: Database Bloat (What We Found)
 
 **Signature:**
+
 ```
 ✅ Checkout P50 > 1,000ms
 ✅ Kafka producer duration matches checkout latency
@@ -356,6 +391,7 @@ Run Query 8 (PostgreSQL metrics) or kubectl checks
 ### Pattern 2: Table Lock Contention
 
 **Signature:**
+
 ```
 ✅ Checkout P50 > 1,000ms
 ✅ Accounting MAX duration > 30s
@@ -373,6 +409,7 @@ Run Query 8 (PostgreSQL metrics) or kubectl checks
 ### Pattern 3: Connection Exhaustion
 
 **Signature:**
+
 ```
 ✅ High error rate (>50%)
 ✅ "too many clients" errors
@@ -389,6 +426,7 @@ Run Query 8 (PostgreSQL metrics) or kubectl checks
 ### Pattern 4: Slow Query / CPU Saturation
 
 **Signature:**
+
 ```
 ✅ Checkout P50 > 500ms
 ✅ All accounting queries slow (not just MAX)
@@ -406,13 +444,13 @@ Run Query 8 (PostgreSQL metrics) or kubectl checks
 
 All queries in one place for easy access:
 
-| Query | Purpose | URL |
-|-------|---------|-----|
-| Checkout latency | User-facing impact | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/7AfTcmyti5A |
-| Checkout over time | When did it start? | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/pcpDyQBdhnH |
-| Kafka producer duration | Is Kafka the bottleneck? | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/rUQTsn2LwKn |
-| Kafka producer success | Failing or just slow? | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/CeWHuPF2F88 |
-| Accounting database perf | Is database slow? | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/accounting/result/pPfKQbE1faJ |
+| Query                    | Purpose                  | URL                                                                                           |
+| ------------------------ | ------------------------ | --------------------------------------------------------------------------------------------- |
+| Checkout latency         | User-facing impact       | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/7AfTcmyti5A   |
+| Checkout over time       | When did it start?       | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/pcpDyQBdhnH   |
+| Kafka producer duration  | Is Kafka the bottleneck? | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/rUQTsn2LwKn   |
+| Kafka producer success   | Failing or just slow?    | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/CeWHuPF2F88   |
+| Accounting database perf | Is database slow?        | https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/accounting/result/pPfKQbE1faJ |
 
 ---
 
@@ -453,21 +491,25 @@ Numeric score for dashboards
 Recommended layout for a single-pane-of-glass view:
 
 ### Row 1: User Impact
+
 - Checkout P95 latency (line graph)
 - Checkout error rate (line graph)
 - Checkout request count (line graph)
 
 ### Row 2: Message Layer
+
 - Kafka producer duration P95 (line graph)
 - Kafka producer success rate (line graph)
 - Kafka message count (line graph)
 
 ### Row 3: Consumer Layer
+
 - Accounting database query P95 (line graph)
 - Accounting database query MAX (line graph)
 - Accounting error count (line graph)
 
 ### Row 4: Database Layer
+
 - PostgreSQL CPU usage (line graph)
 - PostgreSQL connection count (line graph)
 - Database query count (line graph)
@@ -479,23 +521,29 @@ Recommended layout for a single-pane-of-glass view:
 ## Tips for Effective Blast Radius Analysis
 
 ### 1. Always Start at the Top
+
 Begin with user-facing services (checkout) and work down the stack. Don't assume you know where the problem is.
 
 ### 2. Look for Latency Matching
+
 If checkout latency = Kafka producer duration, the bottleneck is downstream.
 
 ### 3. Error Rate Tells a Story
+
 - High errors + low latency = Connection issues
 - Low errors + high latency = Resource constraints or locks
 
 ### 4. Check Time Correlation
+
 Use matching time ranges across all queries. Look for simultaneous spikes.
 
 ### 5. MAX vs P95 Distinction
+
 - High MAX but normal P95 = Intermittent issue (locks, timeouts)
 - High P95 and MAX = Systemic issue (resource exhaustion, bad queries)
 
 ### 6. Don't Forget Success Rate
+
 100% success with high latency is **backpressure**, not failures.
 
 ---
@@ -503,9 +551,9 @@ Use matching time ranges across all queries. Look for simultaneous spikes.
 ## Related Documentation
 
 - **Incident Report:** [DATABASE-BLOAT-INCIDENT.md](./DATABASE-BLOAT-INCIDENT.md)
-- **Failure Scenarios:** [DATABASE-FAILURE-SCENARIOS.md](./DATABASE-FAILURE-SCENARIOS.md)
-- **Blast Radius Analysis:** [PGBENCH-BLAST-RADIUS.md](./PGBENCH-BLAST-RADIUS.md)
-- **Load Testing:** [POSTGRES-LOAD-TESTING.md](./POSTGRES-LOAD-TESTING.md)
+- **Chaos Scenarios & Blast Radius:** [POSTGRES-CHAOS-SCENARIOS.md](./POSTGRES-CHAOS-SCENARIOS.md)
+- **Load Testing Strategy:** [POSTGRES-LOAD-TESTING.md](./POSTGRES-LOAD-TESTING.md)
+- **Quick Reference:** [README.md](../README.md)
 
 ---
 

@@ -15,13 +15,16 @@ Checkout service latency degraded from **~40ms (P50)** to **1,677ms (P50)** - a 
 ## Timeline of Events
 
 ### Before 22:00 (Nov 4)
+
 - Unknown user ran pgbench with very high scale factor (likely scale 100)
 - Created massive 7,477 MB `pgbench_accounts` table
 - Database size grew to 7,508 MB (7.5 GB total)
 - Disk usage reached 72% (72GB / 100GB)
 
 ### Around 22:00 (Nov 4) - Initial Impact
+
 **Symptoms:**
+
 - Database became slow due to resource pressure
 - Accounting service stopped processing database queries (0 queries recorded)
 - Checkout service appeared "fast" (P50: 37ms, P95: 219ms)
@@ -29,7 +32,9 @@ Checkout service latency degraded from **~40ms (P50)** to **1,677ms (P50)** - a 
 **Why checkout looked fast:** No actual load! Accounting wasn't processing orders, so Kafka wasn't being written to, eliminating the main source of checkout latency.
 
 ### Early Morning (02:00-07:00, Nov 5) - Full Degradation
+
 **Database came back online with 7.5GB data:**
+
 - Accounting service resumed processing
 - Multiple pgbench tests ran (light, normal, beast, table-lock)
 - **Checkout P50 jumped to 1,677ms** (40x slower)
@@ -59,9 +64,9 @@ pgbench_branches:    88 KB
 postgresql:
   resources:
     limits:
-      memory: 512Mi              # ❌ Only 512MB for 7.5GB database!
+      memory: 512Mi # ❌ Only 512MB for 7.5GB database!
       cpu: 512m
-      ephemeral-storage: 1Gi     # ❌ Only 1GB storage limit
+      ephemeral-storage: 1Gi # ❌ Only 1GB storage limit
     requests:
       memory: 256Mi
       cpu: 200m
@@ -69,6 +74,7 @@ postgresql:
 ```
 
 **The Mismatch:**
+
 - Database size: **7,508 MB**
 - Memory limit: **512 MB** (15x smaller!)
 - Storage limit: **1 GB** (7x smaller!)
@@ -76,20 +82,24 @@ postgresql:
 ### Why This Caused Degradation
 
 1. **Memory Pressure:**
+
    - PostgreSQL shared_buffers couldn't cache data
    - Constant eviction of cached pages
    - Every query required disk reads
 
 2. **Disk I/O Bottleneck:**
+
    - 7.5GB database couldn't fit in 512MB memory
    - Queries hit disk for every operation
    - I/O wait times increased dramatically
 
 3. **Query Slowdown:**
+
    - Accounting database queries: 30-second waits
    - Normal <5ms queries became 100-1000ms
 
 4. **Kafka Backpressure:**
+
    - Accounting couldn't keep up with Kafka consumption
    - Messages piled up in queue
    - Kafka producer (checkout) experienced slow writes
@@ -103,6 +113,7 @@ postgresql:
 ## Blast Radius
 
 ### Direct Impact
+
 1. **PostgreSQL**
    - 72% disk usage
    - Memory exhaustion
@@ -125,16 +136,19 @@ Frontend (user-facing 4-8 second checkout delays)
 ### Metrics Evidence
 
 **PostgreSQL:**
+
 - Database size: 7,508 MB
 - Disk usage: 72%
 - CPU: Elevated but not saturated
 
 **Accounting Service:**
+
 - MAX query duration: 30,027ms (30 seconds!)
 - Normal query duration: <5ms
 - Error rate: 18 errors during lock tests
 
 **Checkout Service:**
+
 - P50 latency: 1,677ms (was ~40ms)
 - P95 latency: 3,700ms (was ~200ms)
 - P99 latency: 4,905ms
@@ -142,6 +156,7 @@ Frontend (user-facing 4-8 second checkout delays)
 - Kafka producer duration P95: 3,880ms
 
 **Honeycomb Query URLs:**
+
 - Accounting performance: https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/accounting/result/pPfKQbE1faJ
 - Checkout latency: https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/j6RguBJQedc
 - Kafka producer impact: https://ui.honeycomb.io/beowulf/environments/otel-demo/datasets/checkout/result/rUQTsn2LwKn
@@ -153,15 +168,17 @@ Frontend (user-facing 4-8 second checkout delays)
 ### How to Detect Database Bloat
 
 **1. Check Database Size:**
+
 ```bash
 kubectl exec -n otel-demo <POD> -c postgresql -- \
   psql -U root otel -c "SELECT pg_database_size('otel') as db_size_bytes, pg_size_pretty(pg_database_size('otel')) as db_size;"
 ```
 
-**Expected:**  ~25-50 MB
-**Problem:**   >1 GB
+**Expected:** ~25-50 MB
+**Problem:** >1 GB
 
 **2. Check Table Sizes:**
+
 ```bash
 kubectl exec -n otel-demo <POD> -c postgresql -- \
   psql -U root otel -c "SELECT schemaname, tablename, pg_size_pretty(pg_total_relation_size(schemaname||'.'||tablename)) AS size FROM pg_tables WHERE schemaname = 'public' ORDER BY pg_total_relation_size(schemaname||'.'||tablename) DESC LIMIT 10;"
@@ -170,15 +187,17 @@ kubectl exec -n otel-demo <POD> -c postgresql -- \
 **Look for:** `pgbench_accounts` table > 100 MB
 
 **3. Check Disk Usage:**
+
 ```bash
 kubectl exec -n otel-demo <POD> -c postgresql -- \
   df -h /var/lib/postgresql/data
 ```
 
-**Warning:**  >50% usage
+**Warning:** >50% usage
 **Critical:** >80% usage
 
 **4. Query Honeycomb for Accounting Slowness:**
+
 ```
 Dataset: accounting
 WHERE db.system = "postgresql"
@@ -186,11 +205,12 @@ Calculate: MAX(duration_ms), P95(duration_ms)
 Time: Last 24 hours
 ```
 
-**Normal:**   P95 < 10ms
-**Problem:**  P95 > 100ms
+**Normal:** P95 < 10ms
+**Problem:** P95 > 100ms
 **Critical:** MAX > 10,000ms (10 seconds)
 
 **5. Query Honeycomb for Checkout Impact:**
+
 ```
 Dataset: checkout
 WHERE name = "oteldemo.CheckoutService/PlaceOrder"
@@ -198,8 +218,8 @@ Calculate: P50(duration_ms), P95(duration_ms)
 Time: Last 24 hours
 ```
 
-**Normal:**   P50 < 100ms, P95 < 500ms
-**Problem:**  P50 > 500ms, P95 > 1,000ms
+**Normal:** P50 < 100ms, P95 < 500ms
+**Problem:** P50 > 500ms, P95 > 1,000ms
 
 ---
 
@@ -208,13 +228,14 @@ Time: Last 24 hours
 ### Immediate Resolution
 
 ```bash
-cd /Users/brianlangbecker/Documents/GitHub/opentelemetry-demo/infra/pgbench/
+cd /Users/brianlangbecker/Documents/GitHub/opentelemetry-demo/infra/postgres-chaos/
 
 # Clean up pgbench test data
-./pgbench.sh clean
+./postgres-chaos-scenarios.sh clean
 ```
 
 This will:
+
 1. Drop `pgbench_accounts`, `pgbench_tellers`, `pgbench_branches`, `pgbench_history` tables
 2. Reclaim 7,477 MB of space
 3. Reduce database from 7.5GB → ~25MB
@@ -236,27 +257,32 @@ kubectl exec -n otel-demo $POD -c postgresql -- \
 ### Verify Recovery
 
 **1. Check Database Size (should be ~25MB):**
+
 ```bash
 kubectl exec -n otel-demo $POD -c postgresql -- \
   psql -U root otel -c "SELECT pg_size_pretty(pg_database_size('otel'));"
 ```
 
 **2. Check Accounting Service Performance:**
+
 ```
 Dataset: accounting
 WHERE db.system = "postgresql"
 Calculate: P95(duration_ms)
 Time: Last 10 minutes
 ```
+
 Expected: P95 < 10ms
 
 **3. Check Checkout Service Performance:**
+
 ```
 Dataset: checkout
 WHERE name = "oteldemo.CheckoutService/PlaceOrder"
 Calculate: P50(duration_ms), P95(duration_ms)
 Time: Last 10 minutes
 ```
+
 Expected: P50 < 100ms, P95 < 500ms
 
 ---
@@ -265,10 +291,10 @@ Expected: P50 < 100ms, P95 < 500ms
 
 ### 1. Limit pgbench Scale Factor
 
-In `pgbench.sh`, the maximum scale factor is already limited to 40 (4 million rows, ~600MB):
+In `postgres-chaos-scenarios.sh`, the maximum scale factor is already limited to 40 (4 million rows, ~600MB):
 
 ```bash
-# From pgbench.sh line 96-102
+# From postgres-chaos-scenarios.sh line 96-102
 if [ "$TABLE_COUNT" -lt 4000000 ]; then
     SCALE=40
     echo "Initializing pgbench with scale $SCALE (~$SCALE million rows, ~600MB)..."
@@ -282,7 +308,7 @@ fi
 
 ### 2. Add Resource Warnings
 
-pgbench.sh already includes warnings for memory/disk pressure:
+postgres-chaos-scenarios.sh already includes warnings for memory/disk pressure:
 
 ```bash
 # Lines 133-149: Memory pressure check
@@ -294,10 +320,11 @@ Always run with these checks enabled.
 ### 3. Monitor Database Size
 
 **Set up Honeycomb SLO:**
+
 - Dataset: Metrics
 - Metric: `system.filesystem.usage` (when available)
 - Threshold: Alert when >50% usage
-- Action: Run `./pgbench.sh status` and clean if needed
+- Action: Run `./postgres-chaos-scenarios.sh status` and clean if needed
 
 ### 4. Regular Cleanup
 
@@ -305,7 +332,7 @@ Add to your demo/testing runbook:
 
 ```bash
 # After any beast or high-scale pgbench run:
-./pgbench.sh clean
+./postgres-chaos-scenarios.sh clean
 ```
 
 ### 5. Consider Resource Limits
@@ -316,9 +343,9 @@ For heavy pgbench testing, temporarily increase PostgreSQL resources:
 postgresql:
   resources:
     limits:
-      memory: 2Gi        # 4x increase for large-scale tests
+      memory: 2Gi # 4x increase for large-scale tests
       cpu: 1000m
-      ephemeral-storage: 5Gi  # Allow for larger datasets
+      ephemeral-storage: 5Gi # Allow for larger datasets
 ```
 
 **Remember:** Revert after testing!
@@ -338,12 +365,14 @@ postgresql:
 ### 2. Symptoms of Memory-Constrained Database
 
 ✅ **Clear Indicators:**
+
 - High MAX query duration (30+ seconds)
 - Normal CPU usage (<80%)
 - Large database size relative to memory
 - No connection errors
 
 ❌ **What it's NOT:**
+
 - CPU saturation
 - Connection exhaustion
 - Lock contention (though we did test this separately)
@@ -360,6 +389,7 @@ Database bloat
 ```
 
 This pattern is **hard to diagnose** because:
+
 - No errors occur
 - Each service looks "fine" in isolation
 - The root cause is several hops away from the symptom
@@ -367,6 +397,7 @@ This pattern is **hard to diagnose** because:
 ### 4. Observability Success
 
 We successfully traced the issue using:
+
 1. Checkout latency spike (user-facing symptom)
 2. Kafka producer duration (matches checkout latency)
 3. Accounting query performance (database operations slow)
@@ -378,17 +409,18 @@ We successfully traced the issue using:
 
 ## Related Documentation
 
-- **pgbench Usage:** [PGBENCH-README.md](./PGBENCH-README.md)
+- **PostgreSQL Chaos Testing:** [POSTGRES-CHAOS-README.md](./POSTGRES-CHAOS-README.md)
 - **Load Testing Strategy:** [POSTGRES-LOAD-TESTING.md](./POSTGRES-LOAD-TESTING.md)
-- **Blast Radius Analysis:** [PGBENCH-BLAST-RADIUS.md](./PGBENCH-BLAST-RADIUS.md)
-- **Failure Scenarios:** [DATABASE-FAILURE-SCENARIOS.md](./DATABASE-FAILURE-SCENARIOS.md)
-- **Quick Reference:** [README.md](./README.md)
+- **Chaos Scenarios & Blast Radius:** [POSTGRES-CHAOS-SCENARIOS.md](./POSTGRES-CHAOS-SCENARIOS.md)
+- **Honeycomb Query Guide:** [HONEYCOMB-BLAST-RADIUS-QUERIES.md](./HONEYCOMB-BLAST-RADIUS-QUERIES.md)
+- **Quick Reference:** [README.md](../README.md)
 
 ---
 
 ## Summary Metrics
 
 ### Before Cleanup (Degraded State)
+
 - Database size: **7,508 MB**
 - Disk usage: **72%**
 - Checkout P50: **1,677ms**
@@ -396,6 +428,7 @@ We successfully traced the issue using:
 - Accounting MAX query: **30,027ms**
 
 ### After Cleanup (Expected Recovered State)
+
 - Database size: **~25 MB** (300x smaller!)
 - Disk usage: **<10%**
 - Checkout P50: **<100ms** (16x faster)
@@ -405,7 +438,7 @@ We successfully traced the issue using:
 ---
 
 **Incident Status:** Diagnosed ✅
-**Resolution:** Run `./pgbench.sh clean`
+**Resolution:** Run `./postgres-chaos-scenarios.sh clean`
 **Prevention:** Enforce scale limits, monitor database size, cleanup after tests
 
 **Date:** 2025-11-05
