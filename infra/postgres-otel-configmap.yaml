@@ -8,7 +8,7 @@ data:
     receivers:
       # PostgreSQL metrics - connects to localhost since we're in the same pod
       postgresql:
-        endpoint: localhost:5432
+        endpoint: 127.0.0.1:5432
         username: root
         password: ${POSTGRES_PASSWORD}
         databases:
@@ -111,11 +111,6 @@ data:
         collection_interval: 30s
         scrapers:
           filesystem:
-            include_devices:
-              mount_points:
-                match_type: regexp
-                # Capture PostgreSQL data directory (persistent) and temp directories (ephemeral)
-                regexp: '^/(var/lib/postgresql/data|tmp|var/tmp).*'
             metrics:
               system.filesystem.usage:
                 enabled: true

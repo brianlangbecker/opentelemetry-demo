@@ -31,6 +31,7 @@ Frontend Service (Python/Flask)
 ```
 
 **This test demonstrates:**
+
 - ✅ **Service overload** - Frontend exhaustion with 500/503 errors
 - ❌ **NOT rate limiting** - Envoy would return 429 errors if rate limits were configured
 
@@ -321,6 +322,7 @@ Frontend (Python/Flask)
 ```
 
 **Key Difference:**
+
 - **Without rate limiting (current):** Frontend gets overwhelmed → 500/503 errors
 - **With rate limiting (not configured):** Envoy protects frontend → 429 errors
 
@@ -411,14 +413,15 @@ TIME RANGE: Last 15 minutes
 
 ## 🎯 **Key Differences from Other Tests**
 
-| Test                      | Target              | Method              | Error Type           | Envoy Involved? |
-| ------------------------- | ------------------- | ------------------- | -------------------- | --------------- |
+| Test                      | Target              | Method              | Error Type           | Envoy Involved?              |
+| ------------------------- | ------------------- | ------------------- | -------------------- | ---------------------------- |
 | **Frontend Flood**        | Frontend service    | High request volume | 500/503/timeout      | ✅ Yes (passes all requests) |
-| **Connection Exhaustion** | PostgreSQL          | Hold connections    | "too many clients"   | ❌ No (internal DB) |
-| **IOPS Pressure**         | PostgreSQL          | Heavy I/O           | EOF, "shutting down" | ❌ No (internal DB) |
-| **Kafka Queue**           | Checkout/Accounting | Message flood       | Kafka lag, OOM       | ❌ No (internal messaging) |
+| **Connection Exhaustion** | PostgreSQL          | Hold connections    | "too many clients"   | ❌ No (internal DB)          |
+| **IOPS Pressure**         | PostgreSQL          | Heavy I/O           | EOF, "shutting down" | ❌ No (internal DB)          |
+| **Kafka Queue**           | Checkout/Accounting | Message flood       | Kafka lag, OOM       | ❌ No (internal messaging)   |
 
 **Unique Aspects:**
+
 - This is the only test that routes through **Envoy (frontend-proxy)**
 - Demonstrates service overload when rate limiting is NOT configured
 - Could be modified to demonstrate rate limit enforcement by configuring Envoy
@@ -519,12 +522,12 @@ To extend this test and demonstrate Envoy rate limiting, add to `src/frontend-pr
 http_filters:
   - name: envoy.filters.http.local_ratelimit
     typed_config:
-      "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
+      '@type': type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
       stat_prefix: http_local_rate_limiter
       token_bucket:
         max_tokens: 100
         tokens_per_fill: 100
-        fill_interval: 60s  # 100 requests per minute
+        fill_interval: 60s # 100 requests per minute
       filter_enabled:
         runtime_key: local_rate_limit_enabled
         default_value:
@@ -547,6 +550,7 @@ http_filters:
 ```
 
 **With rate limiting configured:**
+
 - Requests exceeding 100/min would get **429 Too Many Requests**
 - Frontend service would be **protected** from overload
 - Error type changes from **500/503** (service overload) to **429** (rate limited)

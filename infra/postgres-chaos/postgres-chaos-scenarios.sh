@@ -149,13 +149,13 @@ case $LOAD_LEVEL in
         ;;
     connection-exhaust)
         echo -e "${RED}Scenario: CONNECTION EXHAUSTION${NC}"
-        echo "  - Opens 90 connections (90% of max_connections=100)"
+        echo "  - Opens 92 connections (92% of max_connections=100)"
         echo "  - Holds connections for 5 minutes (300 seconds)"
         echo "  - Purpose: Exhaust connection pool → all services fail to connect"
         echo "  - Expected: accounting, checkout, frontend ALL show connection errors"
         echo ""
         echo -e "${YELLOW}Blast radius cascade:${NC}"
-        echo "  1. Database connections → 90/100 (90% utilized)"
+        echo "  1. Database connections → 92/100 (92% utilized)"
         echo "  2. Accounting can't connect → errors pile up"
         echo "  3. Checkout can't connect → API failures"
         echo "  4. Frontend shows 'Database unavailable' errors"
@@ -167,7 +167,7 @@ case $LOAD_LEVEL in
             exit 0
         fi
 
-        echo -e "${BLUE}Opening 90 connections for 5 minutes...${NC}"
+        echo -e "${BLUE}Opening 92 connections for 5 minutes...${NC}"
         echo "Monitor in Honeycomb:"
         echo "  - accounting: 'too many clients' errors"
         echo "  - checkout: connection timeouts"
@@ -179,11 +179,18 @@ case $LOAD_LEVEL in
 SELECT pg_sleep(300);
 EOF'
 
-        echo -e "${YELLOW}Starting 90 pgbench clients (each holds 1 connection)...${NC}"
+        # Close existing application connections to force reconnection attempts
+        echo -e "${YELLOW}Closing existing application connections...${NC}"
+        CLOSED=$(kubectl exec -n otel-demo $POD -c postgresql -- psql -U root otel -t -c \
+          "SELECT COUNT(*) FROM (SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = 'otel' AND pid != pg_backend_pid()) sub;")
+        echo "Closed $CLOSED existing connections to 'otel' database"
+        echo ""
+
+        echo -e "${YELLOW}Starting 92 pgbench clients (each holds 1 connection)...${NC}"
         # Run pgbench as a detached process INSIDE the pod to avoid kubectl timeout
         kubectl exec -n otel-demo $POD -c postgresql -- bash -c '
 nohup pgbench \
-    -c 90 \
+    -c 92 \
     -j 1 \
     -T 300 \
     -f /tmp/hold-connection.sql \
@@ -196,7 +203,7 @@ echo $! > /tmp/connection-exhaust.pid
         sleep 3  # Give time for connections to establish
         
         echo ""
-        echo -e "${RED}90 database connections are now HELD for 5 minutes!${NC}"
+        echo -e "${RED}92 database connections are now HELD for 5 minutes!${NC}"
         echo ""
         
         # Monitor connection count every 30 seconds for 5 minutes

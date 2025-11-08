@@ -1,4 +1,4 @@
-# Verify Postgres Database is Running and Being Used
+if un# Verify Postgres Database is Running and Being Used
 
 This document provides commands to verify that PostgreSQL is actually running and receiving data in the OpenTelemetry Demo.
 

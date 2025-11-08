@@ -5,8 +5,8 @@
 #   ./install-with-persistence.sh [values-file]
 #
 # Example:
-#   ./install-with-persistence.sh otel-demo-values.yaml
-#   ./install-with-persistence.sh otel-demo-values-aws.yaml
+#   ./install-with-persistence.sh otel-demo-values.yaml./install-with-persistence.sh otel-demo-values-aws.yaml
+#   
 
 set -e
 

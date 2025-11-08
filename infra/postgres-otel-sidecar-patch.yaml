@@ -8,20 +8,17 @@ spec:
         
       # Add OTel Collector sidecar
       - name: otel-collector
-        image: otel/opentelemetry-collector-contrib:0.91.0
+        image: otel/opentelemetry-collector-contrib:0.135.0
         args:
           - --config=/conf/otelcol-config.yaml
         env:
           # PostgreSQL connection details
           - name: POSTGRES_PASSWORD
-            valueFrom:
-              secretKeyRef:
-                name: postgresql
-                key: password
+            value: "otel"
           
           # Main OTel Collector endpoint
           - name: OTEL_COLLECTOR_HOST
-            value: "otelcol"
+            value: "otel-collector"
           - name: OTEL_COLLECTOR_PORT_GRPC
             value: "4317"
         

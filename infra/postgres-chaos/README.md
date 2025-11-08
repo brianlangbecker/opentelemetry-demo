@@ -108,10 +108,12 @@ postgres-chaos/
 When you run chaos scenarios, the blast radius extends across multiple services:
 
 ### Direct PostgreSQL Consumers
+
 1. **accounting** - Writes to `order` and `orderitem` tables
 2. **product-catalog** - Reads from `products` table
 
 ### Cascading Failures
+
 3. **checkout** - Depends on both accounting (via Kafka) and product-catalog (direct)
 4. **frontend** - Depends on product-catalog for product listings
 5. **Other services** - Recommendation, cart, etc.
@@ -126,7 +128,7 @@ All chaos tests generate rich telemetry visible in Honeycomb:
 
 - **Metrics dataset:** PostgreSQL CPU, memory, connections
 - **k8s-events dataset:** Pod restarts, OOMKills
-- **Service datasets:** 
+- **Service datasets:**
   - accounting: Database query performance, error rates
   - product-catalog: Database query performance, product lookup latency
   - checkout: Cascading impact from both services
@@ -169,7 +171,6 @@ All chaos tests generate rich telemetry visible in Honeycomb:
 - **Real incident analysis:** [docs/DATABASE-BLOAT-INCIDENT.md](./docs/DATABASE-BLOAT-INCIDENT.md)
   - 7.5GB database causing 40x performance degradation
   - Root cause analysis and resolution
-  
 - **Honeycomb query guide:** [docs/HONEYCOMB-BLAST-RADIUS-QUERIES.md](./docs/HONEYCOMB-BLAST-RADIUS-QUERIES.md)
   - Step-by-step debugging workflow
   - Pre-built queries for blast radius analysis
@@ -209,18 +210,18 @@ See [docs/DATABASE-BLOAT-INCIDENT.md](./docs/DATABASE-BLOAT-INCIDENT.md) for a r
 
 ## Quick Reference
 
-| Command | Purpose | Duration | Primary Impact |
-|---------|---------|----------|----------------|
-| `light` | Quick verification | 30s | Minimal |
-| `normal` | Demo load test | 5-10 min | Moderate |
-| `beast` | Chaos engineering | 30+ min | Extreme (OOMKill) |
-| `demo` | All scenarios | 10 min | Progressive chaos |
-| `connection-exhaust` | Connection pool exhaustion | 5 min | accounting + product-catalog |
-| `table-lock` | Table locking | 10 min | Specific tables |
-| `slow-query` | Expensive queries | 30 min | ALL consumers |
-| `init` | Initialize pgbench | 1 min | Setup |
-| `status` | Check database size | 10s | Info only |
-| `clean` | Remove pgbench tables | 10s | Cleanup |
+| Command              | Purpose                    | Duration | Primary Impact               |
+| -------------------- | -------------------------- | -------- | ---------------------------- |
+| `light`              | Quick verification         | 30s      | Minimal                      |
+| `normal`             | Demo load test             | 5-10 min | Moderate                     |
+| `beast`              | Chaos engineering          | 30+ min  | Extreme (OOMKill)            |
+| `demo`               | All scenarios              | 10 min   | Progressive chaos            |
+| `connection-exhaust` | Connection pool exhaustion | 5 min    | accounting + product-catalog |
+| `table-lock`         | Table locking              | 10 min   | Specific tables              |
+| `slow-query`         | Expensive queries          | 30 min   | ALL consumers                |
+| `init`               | Initialize pgbench         | 1 min    | Setup                        |
+| `status`             | Check database size        | 10s      | Info only                    |
+| `clean`              | Remove pgbench tables      | 10s      | Cleanup                      |
 
 ---
 

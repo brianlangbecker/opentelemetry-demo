@@ -291,6 +291,7 @@ opentelemetry-collector:
           - debug
         metrics:
           receivers:
+          - otlp
           - spanmetrics
           - kubeletstats
           - k8s_cluster

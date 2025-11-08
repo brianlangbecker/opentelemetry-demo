@@ -68,6 +68,7 @@ Each volume mount gets **separate metrics** identified by attributes:
 ### Honeycomb Query Examples
 
 **1. Total Disk Size per Volume:**
+
 ```
 WHERE service.name = "postgresql-sidecar"
   AND system.filesystem.usage EXISTS
@@ -76,6 +77,7 @@ VISUALIZE SUM(system.filesystem.usage)
 ```
 
 **2. Disk Usage Percentage:**
+
 ```
 WHERE service.name = "postgresql-sidecar"
   AND system.filesystem.utilization EXISTS
@@ -84,6 +86,7 @@ VISUALIZE MAX(system.filesystem.utilization)
 ```
 
 **3. Used vs Free Comparison:**
+
 ```
 WHERE service.name = "postgresql-sidecar"
   AND system.filesystem.usage EXISTS
@@ -93,11 +96,11 @@ VISUALIZE SUM(system.filesystem.usage)
 
 ### Expected Volumes in Output
 
-| Mount Point | Type | Description | Expected Size |
-|------------|------|-------------|---------------|
-| `/var/lib/postgresql/data` | Persistent (PVC) | PostgreSQL data directory | 2 GB |
-| `/tmp` | Ephemeral (emptyDir) | Temp files | Variable |
-| `/var/tmp` | Ephemeral (emptyDir) | Temp storage | Variable |
+| Mount Point                | Type                 | Description               | Expected Size |
+| -------------------------- | -------------------- | ------------------------- | ------------- |
+| `/var/lib/postgresql/data` | Persistent (PVC)     | PostgreSQL data directory | 2 GB          |
+| `/tmp`                     | Ephemeral (emptyDir) | Temp files                | Variable      |
+| `/var/tmp`                 | Ephemeral (emptyDir) | Temp storage              | Variable      |
 
 ---
 
@@ -105,26 +108,26 @@ VISUALIZE SUM(system.filesystem.usage)
 
 ### 🆕 NEW Metrics (Not in Main Collector)
 
-| Metric | Description | Use Case |
-|--------|-------------|----------|
-| `postgresql.connection.max` | Max connections configured | Compare with `postgresql.backends` |
-| `postgresql.wal.age` | WAL age in bytes | Replication lag detection |
-| `postgresql.wal.delay` | WAL delay in time | Replication health |
-| `postgresql.index.size` | Per-index size | Identify bloated indexes |
-| `postgresql.index.scans` | Index scan count | Unused index detection |
-| `postgresql.replication.data_delay` | Replication lag in bytes | Replica health monitoring |
-| `postgresql.operations` | Sequential vs index scans | Query optimization |
-| `postgresql.rows` | Per-table row operations | Table activity monitoring |
-| `postgresql.blocks_read` | Per-table block reads | Table-level I/O analysis |
+| Metric                              | Description                | Use Case                           |
+| ----------------------------------- | -------------------------- | ---------------------------------- |
+| `postgresql.connection.max`         | Max connections configured | Compare with `postgresql.backends` |
+| `postgresql.wal.age`                | WAL age in bytes           | Replication lag detection          |
+| `postgresql.wal.delay`              | WAL delay in time          | Replication health                 |
+| `postgresql.index.size`             | Per-index size             | Identify bloated indexes           |
+| `postgresql.index.scans`            | Index scan count           | Unused index detection             |
+| `postgresql.replication.data_delay` | Replication lag in bytes   | Replica health monitoring          |
+| `postgresql.operations`             | Sequential vs index scans  | Query optimization                 |
+| `postgresql.rows`                   | Per-table row operations   | Table activity monitoring          |
+| `postgresql.blocks_read`            | Per-table block reads      | Table-level I/O analysis           |
 
 ### 📊 Existing Metrics (Also in Main Collector - Now with Better Accuracy)
 
-| Metric | Sidecar Advantage | Main Collector Limitation |
-|--------|-------------------|---------------------------|
-| `postgresql.db_size` | **Queries both `otel` AND `postgres` databases** | Only queries `postgres` database |
-| `postgresql.blks_hit/read` | **Per-database breakdown** | Aggregated only |
-| `postgresql.backends` | **Pod-local, no network latency** | Network hop to PostgreSQL |
-| `postgresql.table.size` | **All tables in `otel` database** | Limited visibility |
+| Metric                     | Sidecar Advantage                                | Main Collector Limitation        |
+| -------------------------- | ------------------------------------------------ | -------------------------------- |
+| `postgresql.db_size`       | **Queries both `otel` AND `postgres` databases** | Only queries `postgres` database |
+| `postgresql.blks_hit/read` | **Per-database breakdown**                       | Aggregated only                  |
+| `postgresql.backends`      | **Pod-local, no network latency**                | Network hop to PostgreSQL        |
+| `postgresql.table.size`    | **All tables in `otel` database**                | Limited visibility               |
 
 ---
 
@@ -135,6 +138,7 @@ VISUALIZE SUM(system.filesystem.usage)
 **Why:** Sidecar provides more accurate, comprehensive metrics.
 
 **In `src/otel-collector/otelcol-config.yml`:**
+
 ```yaml
 receivers:
   # postgresql:  # ← DISABLE - now handled by sidecar
@@ -146,11 +150,21 @@ receivers:
 service:
   pipelines:
     metrics:
-      receivers: [docker_stats, httpcheck/frontend-proxy, hostmetrics, nginx, otlp, redis, spanmetrics]
+      receivers:
+        [
+          docker_stats,
+          httpcheck/frontend-proxy,
+          hostmetrics,
+          nginx,
+          otlp,
+          redis,
+          spanmetrics
+        ]
       # ↑ Notice: removed 'postgresql' from list
 ```
 
 **In `kubernetes/opentelemetry-demo.yaml`:**
+
 ```yaml
 receivers:
   # postgresql:  # ← DISABLE
@@ -160,7 +174,17 @@ receivers:
 service:
   pipelines:
     metrics:
-      receivers: [httpcheck/frontend-proxy, jaeger, nginx, otlp, prometheus, redis, zipkin, spanmetrics]
+      receivers:
+        [
+          httpcheck/frontend-proxy,
+          jaeger,
+          nginx,
+          otlp,
+          prometheus,
+          redis,
+          zipkin,
+          spanmetrics
+        ]
       # ↑ Remove 'postgresql'
 ```
 
@@ -169,6 +193,7 @@ service:
 **Why:** Compare cluster-level vs pod-level metrics for validation.
 
 **Honeycomb Filters:**
+
 ```
 # Pod-local metrics (sidecar)
 WHERE service.name = "postgresql-sidecar"
@@ -181,6 +206,7 @@ WHERE service.name != "postgresql-sidecar"
 ### Option 3: Hybrid Approach
 
 **Keep in Main Collector:** Basic health metrics only
+
 - `postgresql.backends`
 - `postgresql.deadlocks`
 
@@ -191,6 +217,7 @@ WHERE service.name != "postgresql-sidecar"
 ## Key Metrics for Chaos Testing
 
 ### Connection Exhaustion Tests
+
 ```
 postgresql.backends          # Current connections
 postgresql.connection.max    # Max allowed (should be 100)
@@ -199,6 +226,7 @@ postgresql.connection.max    # Max allowed (should be 100)
 **Alert when:** `backends / connection.max > 0.90` (90% capacity)
 
 ### IOPS Pressure Tests
+
 ```
 postgresql.blks_hit         # Cache hits
 postgresql.blks_read        # Disk reads
@@ -210,6 +238,7 @@ system.disk.operations      # Actual disk ops per second
 **Alert when:** Cache hit ratio < 90% (indicates I/O pressure)
 
 ### Disk Space Tests
+
 ```
 system.filesystem.usage           # Actual disk usage
 system.filesystem.utilization     # Percentage full
@@ -220,6 +249,7 @@ postgresql.table.size            # Per-table sizes
 **Alert when:** `filesystem.utilization > 85%`
 
 ### Table-Level Analysis
+
 ```
 postgresql.table.size            # Identify large tables
 postgresql.index.size            # Identify bloated indexes
@@ -236,17 +266,20 @@ postgresql.tup_returned         # Rows scanned vs returned
 ## Deployment Instructions
 
 ### 1. Apply ConfigMap
+
 ```bash
 kubectl apply -f infra/postgres-otel-configmap.yaml
 ```
 
 ### 2. Patch PostgreSQL StatefulSet
+
 ```bash
 kubectl patch statefulset postgresql -n otel-demo \
   --patch-file infra/postgres-otel-sidecar-patch.yaml
 ```
 
 ### 3. Verify Sidecar
+
 ```bash
 # Check both containers are running
 kubectl get pod -n otel-demo -l app.kubernetes.io/name=postgresql \
@@ -260,6 +293,7 @@ kubectl logs -n otel-demo -l app.kubernetes.io/name=postgresql \
 ```
 
 ### 4. Verify Metrics in Honeycomb
+
 ```
 DATASET: opentelemetry-demo
 WHERE service.name = "postgresql-sidecar"
@@ -270,6 +304,7 @@ TIME RANGE: Last 10 minutes
 ```
 
 **Expected output:**
+
 - `otel` database: ~700 MB (with 1500 products)
 - `postgres` database: ~7.3 MB (system DB)
 
@@ -278,16 +313,19 @@ TIME RANGE: Last 10 minutes
 ## Troubleshooting
 
 ### Sidecar Not Starting
+
 ```bash
 kubectl describe pod -n otel-demo -l app.kubernetes.io/name=postgresql
 ```
 
 **Common issues:**
+
 - ConfigMap not found: Ensure `postgres-otel-config` exists
 - Secret not found: Check `postgresql` secret exists
 - Resource limits: Check memory/CPU availability
 
 ### No Metrics in Honeycomb
+
 ```bash
 # Check sidecar debug logs
 kubectl logs -n otel-demo -l app.kubernetes.io/name=postgresql \
@@ -299,6 +337,7 @@ kubectl logs -n otel-demo -l app.kubernetes.io/name=opentelemetry-collector \
 ```
 
 ### Filesystem Metrics Not Showing
+
 ```bash
 # Exec into sidecar to check mounts
 kubectl exec -n otel-demo -it postgresql-0 -c otel-collector -- df -h
@@ -314,12 +353,14 @@ kubectl exec -n otel-demo -it postgresql-0 -c otel-collector -- df -h
 ## Resource Consumption
 
 **Sidecar OTel Collector:**
+
 - **CPU:** 100m request, 200m limit
 - **Memory:** 128 Mi request, 256 Mi limit
 - **Network:** ~10 KB/s to main collector
 - **Collection Interval:** 30 seconds
 
 **Total Pod Resources (PostgreSQL + Sidecar):**
+
 - **CPU:** ~300m total
 - **Memory:** ~384 Mi total
 
@@ -328,23 +369,27 @@ kubectl exec -n otel-demo -it postgresql-0 -c otel-collector -- df -h
 ## Benefits of Sidecar Approach
 
 ✅ **More Accurate Metrics**
+
 - Queries `localhost` (no network latency)
 - Sees all databases (`otel` + `postgres`)
 - Pod-local filesystem visibility
 
 ✅ **Better Granularity**
+
 - Per-database metrics
 - Per-table metrics
 - Per-index metrics
 - Per-volume filesystem metrics
 
 ✅ **Chaos Testing Insights**
+
 - Exact disk usage during bloat tests
 - Table-level impact visibility
 - Connection pool accuracy
 - IOPS pressure per table
 
 ✅ **Independent Collection**
+
 - Survives main collector restarts
 - No shared connection pool with apps
 - Isolated troubleshooting
@@ -368,4 +413,3 @@ kubectl exec -n otel-demo -it postgresql-0 -c otel-collector -- df -h
 - [PostgreSQL System Catalogs](https://www.postgresql.org/docs/current/catalogs.html)
 - [Connection Exhaustion Test Results](./CONNECTION-EXHAUSTION-TEST-RESULTS.md)
 - [IOPS Blast Radius Test Results](./IOPS-BLAST-RADIUS-TEST-RESULTS.md)
-
