@@ -1,0 +1,53 @@
+spec:
+  template:
+    spec:
+      containers:
+      # Existing PostgreSQL container (first in list)
+      - name: postgresql
+        # No changes to existing container
+        
+      # Add OTel Collector sidecar
+      - name: otel-collector
+        image: otel/opentelemetry-collector-contrib:0.91.0
+        args:
+          - --config=/conf/otelcol-config.yaml
+        env:
+          # PostgreSQL connection details
+          - name: POSTGRES_PASSWORD
+            valueFrom:
+              secretKeyRef:
+                name: postgresql
+                key: password
+          
+          # Main OTel Collector endpoint
+          - name: OTEL_COLLECTOR_HOST
+            value: "otelcol"
+          - name: OTEL_COLLECTOR_PORT_GRPC
+            value: "4317"
+        
+        resources:
+          limits:
+            memory: 256Mi
+            cpu: 200m
+          requests:
+            memory: 128Mi
+            cpu: 100m
+        
+        volumeMounts:
+          - name: otel-collector-config
+            mountPath: /conf
+            readOnly: true
+          # Mount PostgreSQL data directory for filesystem metrics
+          - name: postgresql-data
+            mountPath: /var/lib/postgresql/data
+            readOnly: true
+      
+      volumes:
+        # Add ConfigMap volume for OTel Collector config
+        - name: otel-collector-config
+          configMap:
+            name: postgres-otel-config
+            items:
+              - key: otelcol-config.yaml
+                path: otelcol-config.yaml
+

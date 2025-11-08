@@ -1,0 +1,190 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-otel-config
+  namespace: otel-demo
+data:
+  otelcol-config.yaml: |
+    receivers:
+      # PostgreSQL metrics - connects to localhost since we're in the same pod
+      postgresql:
+        endpoint: localhost:5432
+        username: root
+        password: ${POSTGRES_PASSWORD}
+        databases:
+          - otel
+          - postgres
+        metrics:
+          # ==========================================
+          # CACHE/BUFFER METRICS (I/O Performance)
+          # ==========================================
+          postgresql.blks_hit:
+            enabled: true    # Cache hits (high = good)
+          postgresql.blks_read:
+            enabled: true    # Disk reads (high = cache misses)
+          
+          # ==========================================
+          # TRANSACTION METRICS
+          # ==========================================
+          postgresql.commits:
+            enabled: true    # Successful transactions
+          postgresql.rollbacks:
+            enabled: true    # Failed transactions
+          
+          # ==========================================
+          # ROW-LEVEL OPERATIONS (Tuple Metrics)
+          # ==========================================
+          postgresql.tup_fetched:
+            enabled: true    # Rows fetched by queries (actual results returned)
+          postgresql.tup_returned:
+            enabled: true    # Rows scanned (includes rows filtered out)
+          postgresql.tup_inserted:
+            enabled: true    # Rows inserted
+          postgresql.tup_updated:
+            enabled: true    # Rows updated
+          postgresql.tup_deleted:
+            enabled: true    # Rows deleted
+          
+          # ==========================================
+          # CONNECTION METRICS
+          # ==========================================
+          postgresql.backends:
+            enabled: true    # Active connections
+          postgresql.connection.max:
+            enabled: true    # Max connections allowed (NEW!)
+          
+          # ==========================================
+          # LOCK/CONCURRENCY METRICS
+          # ==========================================
+          postgresql.deadlocks:
+            enabled: true    # Deadlock count
+          
+          # ==========================================
+          # DATABASE SIZE METRICS
+          # ==========================================
+          postgresql.db_size:
+            enabled: true    # Logical database size (per DB)
+          postgresql.wal.age:
+            enabled: true    # WAL age (replication lag indicator) (NEW!)
+          postgresql.wal.delay:
+            enabled: true    # WAL delay (NEW!)
+          
+          # ==========================================
+          # TABLE-LEVEL METRICS
+          # ==========================================
+          postgresql.table.count:
+            enabled: true    # Number of tables
+          postgresql.table.size:
+            enabled: true    # Individual table sizes
+          postgresql.table.vacuum.count:
+            enabled: true    # Vacuum operations
+          
+          # ==========================================
+          # INDEX METRICS (NEW!)
+          # ==========================================
+          postgresql.index.size:
+            enabled: true    # Individual index sizes
+          postgresql.index.scans:
+            enabled: true    # Index usage (higher = more useful)
+          
+          # ==========================================
+          # REPLICATION METRICS (NEW!)
+          # ==========================================
+          postgresql.replication.data_delay:
+            enabled: true    # Replication lag in bytes
+          
+          # ==========================================
+          # PERFORMANCE METRICS (NEW!)
+          # ==========================================
+          postgresql.operations:
+            enabled: true    # Sequential scans, index scans per table
+          postgresql.rows:
+            enabled: true    # Rows inserted/updated/deleted per table
+          postgresql.blocks_read:
+            enabled: true    # Blocks read per table
+        collection_interval: 30s
+        tls:
+          insecure: true
+
+      # Host metrics - filesystem usage for BOTH ephemeral and persistent volumes
+      hostmetrics:
+        collection_interval: 30s
+        scrapers:
+          filesystem:
+            include_devices:
+              mount_points:
+                match_type: regexp
+                # Capture PostgreSQL data directory (persistent) and temp directories (ephemeral)
+                regexp: '^/(var/lib/postgresql/data|tmp|var/tmp).*'
+            metrics:
+              system.filesystem.usage:
+                enabled: true
+              system.filesystem.utilization:
+                enabled: true
+              system.filesystem.inodes.usage:
+                enabled: true
+          disk:
+            metrics:
+              system.disk.io:
+                enabled: true
+              system.disk.operations:
+                enabled: true
+              system.disk.io_time:
+                enabled: true
+              system.disk.operation_time:
+                enabled: true
+          memory:
+            metrics:
+              system.memory.usage:
+                enabled: true
+              system.memory.utilization:
+                enabled: true
+          cpu:
+            metrics:
+              system.cpu.utilization:
+                enabled: true
+              system.cpu.time:
+                enabled: true
+
+    processors:
+      batch:
+        timeout: 10s
+        send_batch_size: 1024
+      
+      # Add resource attributes to identify this as PostgreSQL sidecar
+      resource:
+        attributes:
+          - key: service.name
+            value: postgresql-sidecar
+            action: upsert
+          - key: component
+            value: postgresql
+            action: upsert
+          - key: telemetry.source
+            value: sidecar
+            action: upsert
+
+    exporters:
+      # Send to the main OTel Collector in the cluster
+      otlp:
+        endpoint: ${OTEL_COLLECTOR_HOST}:${OTEL_COLLECTOR_PORT_GRPC}
+        tls:
+          insecure: true
+      
+      # Debug exporter for troubleshooting
+      debug:
+        verbosity: basic
+        sampling_initial: 5
+        sampling_thereafter: 200
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [postgresql, hostmetrics]
+          processors: [resource, batch]
+          exporters: [otlp, debug]
+      
+      telemetry:
+        logs:
+          level: info
+
