@@ -4,21 +4,37 @@ This directory contains Helm values and Kubernetes resources for deploying the O
 
 ---
 
+## 🎯 **New to This? Start Here**
+
+👉 **[INSTALL-FROM-SCRATCH.md](INSTALL-FROM-SCRATCH.md)** - Complete step-by-step installation guide
+
+**Quick install:**
+```bash
+cd infra
+./install-with-persistence.sh otel-demo-values-aws.yaml
+```
+
+This automatically sets up:
+- ✅ PostgreSQL with persistent storage (2 GB PVC)
+- ✅ OTel Collector sidecar for comprehensive metrics
+- ✅ All services configured and ready
+
+---
+
 ## 📁 **Files Overview**
 
-| **File**                         | **Purpose**                               | **When to Use**                          |
-| -------------------------------- | ----------------------------------------- | ---------------------------------------- |
-| `otel-demo-values.yaml`          | Main Helm values (Honeycomb config)       | ✅ Every install                         |
-| `otel-demo-values-aws.yaml`      | AWS-specific Helm values                  | AWS deployments                          |
-| `helm-commands.sh`               | Common Helm commands (install, dry-run)   | Quick reference for Helm operations      |
-| `postgres-persistent-setup.yaml` | PVC + ConfigMap for PostgreSQL            | For IOPS demos with persistence          |
-| `postgres-patch.yaml`            | Patch to attach PVC to PostgreSQL         | After Helm install (if using PVC)        |
-| `install-with-persistence.sh`    | **One-command installer**                 | 🚀 **Easiest way** to enable persistence |
-| `seed-150k.sql`                  | Pre-seed 150K orders into DB              | Optional: instant IOPS demo              |
-| `run-postgres-chaos.sh`          | 🎭 **Interactive chaos script**           | Create locks, slow queries, bloat        |
-| `postgres-chaos-queries.sql`     | Manual chaos SQL scenarios                | Advanced users, custom chaos tests       |
-| `heavy-maintenance-chaos.md`     | 🔥 5-10 min chaos guide                   | Long-form demos, detailed walkthrough    |
-| `verify-postgres.md`             | PostgreSQL verification & troubleshooting | When setting up or debugging PostgreSQL  |
+| **File**                         | **Purpose**                                      | **When to Use**                          |
+| -------------------------------- | ------------------------------------------------ | ---------------------------------------- |
+| `INSTALL-FROM-SCRATCH.md`        | 📖 **Complete installation guide**              | 🆕 **Start here** for new installs       |
+| `install-with-persistence.sh`    | 🚀 **One-command installer**                     | **Easiest way** - handles everything     |
+| `otel-demo-values.yaml`          | Main Helm values (Honeycomb config)              | Local Kubernetes installs                |
+| `otel-demo-values-aws.yaml`      | AWS-specific Helm values                         | AWS/cloud deployments                    |
+| `postgres-persistent-setup.yaml` | PVC + ConfigMap for PostgreSQL                   | Creates 2GB persistent storage           |
+| `postgres-patch.yaml`            | Patch to attach PVC to PostgreSQL                | Mounts PVC to `/var/lib/postgresql/data` |
+| `postgres-otel-configmap.yaml`   | OTel Collector sidecar configuration             | Comprehensive PostgreSQL metrics         |
+| `postgres-otel-sidecar-patch.yaml` | Adds OTel Collector sidecar to PostgreSQL pod  | Enables pod-local metrics collection     |
+| `postgres-chaos/`                | PostgreSQL chaos testing scenarios               | Connection exhaustion, IOPS tests        |
+| `postgres-seed/`                 | Database seeding scripts                         | Pre-populate products/orders             |
 
 ---
 
@@ -34,35 +50,51 @@ helm install otel-demo open-telemetry/opentelemetry-demo \
   --create-namespace
 ```
 
-### **Option 2: Install with Persistent PostgreSQL (Recommended for IOPS Demos)**
+### **Option 2: Install with Persistent PostgreSQL + OTel Sidecar (Recommended)**
 
 ```bash
-# One command - sets up PVC and patches PostgreSQL automatically
-./install-with-persistence.sh otel-demo-values.yaml
+# One command - sets up everything automatically
+./install-with-persistence.sh otel-demo-values-aws.yaml
 ```
 
 **What it does:**
 
 1. ✅ Creates namespace
 2. ✅ Creates 2Gi PersistentVolumeClaim
-3. ✅ Installs Helm chart
-4. ✅ Patches PostgreSQL to use persistent storage
+3. ✅ Creates OTel Collector sidecar ConfigMap
+4. ✅ Installs Helm chart
+5. ✅ Patches PostgreSQL to use persistent storage
+6. ✅ Adds OTel Collector sidecar to PostgreSQL pod
 
-### **Option 3: Manual Install with Persistence**
+**PostgreSQL pod will have:**
+- 🗄️ Persistent storage (data survives pod restarts)
+- 📊 17+ PostgreSQL metrics (connections, cache, WAL, indexes, tables)
+- 💾 Filesystem metrics segregated by volume
+- 📈 Disk I/O, memory, and CPU metrics
 
+### **Option 3: Manual Install with Persistence + Sidecar**
+
+See **[INSTALL-FROM-SCRATCH.md](INSTALL-FROM-SCRATCH.md)** for complete step-by-step instructions.
+
+**Quick summary:**
 ```bash
-# Step 1: Create namespace and PVC
+# Step 1: Create namespace and resources
 kubectl create namespace otel-demo
 kubectl apply -f postgres-persistent-setup.yaml
+kubectl apply -f postgres-otel-configmap.yaml
 
 # Step 2: Install Helm chart
 helm install otel-demo open-telemetry/opentelemetry-demo \
   -n otel-demo \
-  --values otel-demo-values.yaml
+  --values otel-demo-values-aws.yaml
 
-# Step 3: Patch PostgreSQL deployment
+# Step 3: Patch PostgreSQL for PVC
 kubectl patch deployment postgresql -n otel-demo \
   --patch-file postgres-patch.yaml
+
+# Step 4: Add OTel Collector sidecar
+kubectl patch deployment postgresql -n otel-demo \
+  --patch-file postgres-otel-sidecar-patch.yaml
 ```
 
 ---
@@ -228,6 +260,17 @@ See documentation in the chaos-scenarios directory:
 
 ## 📚 **Additional Resources**
 
-- [SETUP-NOTES.md](SETUP-NOTES.md) - Comprehensive setup guide
+### Installation & Setup
+- **[INSTALL-FROM-SCRATCH.md](INSTALL-FROM-SCRATCH.md)** - 🆕 Complete installation guide
+- **[postgres-chaos/docs/POSTGRESQL-SIDECAR-METRICS.md](postgres-chaos/docs/POSTGRESQL-SIDECAR-METRICS.md)** - OTel sidecar metrics reference
+
+### Chaos Testing
+- **[postgres-chaos/README.md](postgres-chaos/README.md)** - PostgreSQL chaos scenarios overview
+- **[postgres-chaos/docs/POSTGRES-CHAOS-SCENARIOS.md](postgres-chaos/docs/POSTGRES-CHAOS-SCENARIOS.md)** - Detailed scenario documentation
+- **[postgres-chaos/docs/CONNECTION-EXHAUSTION-TEST-RESULTS.md](postgres-chaos/docs/CONNECTION-EXHAUSTION-TEST-RESULTS.md)** - Connection pool exhaustion test
+- **[postgres-chaos/docs/IOPS-BLAST-RADIUS-TEST-RESULTS.md](postgres-chaos/docs/IOPS-BLAST-RADIUS-TEST-RESULTS.md)** - IOPS pressure test results
 - [ChaosTesting.md](../ChaosTesting.md) - All chaos scenarios
 - [chaos-scenarios/](../chaos-scenarios/) - Individual scenario guides
+
+### Verification
+- [postgres-seed/verify-postgres.md](postgres-seed/verify-postgres.md) - PostgreSQL verification queries
