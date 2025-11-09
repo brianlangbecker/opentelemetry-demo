@@ -19,23 +19,25 @@ Floods the frontend service with a massive volume of homepage requests, causing:
 
 ### Important: Envoy Architecture
 
-**All requests flow through Envoy (frontend-proxy), but rate limiting is NOT configured.**
+**All requests flow through Envoy (frontend-proxy), with rate limiting NOW CONFIGURED (500 req/min).**
 
 ```
 Load Generator (Locust)
     ↓ HTTP to http://frontend-proxy:8080
 Frontend-Proxy (Envoy) ← All traffic routes through here
-    ↓ No rate limiting configured → passes all requests
+    ↓ Rate limit: 500 req/min → returns 429 if exceeded
 Frontend Service (Python/Flask)
-    ↓ Gets overwhelmed → 500/503 errors
+    ↓ Protected by rate limit → max 500 req/min
 ```
 
-**This test demonstrates:**
+**This test can demonstrate:**
 
-- ✅ **Service overload** - Frontend exhaustion with 500/503 errors
-- ❌ **NOT rate limiting** - Envoy would return 429 errors if rate limits were configured
+- ✅ **Rate limiting (429 errors)** - Envoy protects frontend by rejecting excess requests
+- ✅ **Service overload** - Frontend exhaustion if rate limit is high enough (500/503 errors)
 
-**To enable rate limiting**, you would need to add `envoy.filters.http.local_ratelimit` to `src/frontend-proxy/envoy.tmpl.yaml`.
+**Rate limit is configured** in `src/frontend-proxy/envoy.tmpl.yaml` with `envoy.filters.http.local_ratelimit` at 500 req/min.
+
+📋 **See:** `chaos-scenarios/envoy-rate-limit-alert.md` for rate limit monitoring and alerting.
 
 ---
 
