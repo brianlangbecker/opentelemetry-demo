@@ -91,8 +91,11 @@
       "description": "Flood the frontend with a large amount of requests.",
       "state": "ENABLED",
       "variants": {
-        "on": 100,
-        "off": 0
+        "off": 0,
+        "light": 10,
+        "moderate": 25,
+        "heavy": 50,
+        "extreme": 100
       },
       "defaultVariant": "off"
     },

@@ -56,17 +56,26 @@ Frontend Service (Python/Flask)
 
 **Variants:**
 
-- `on: 100` - Each user makes 100 sequential homepage requests per cycle
 - `off: 0` - Normal behavior (no flooding)
+- `light: 10` - Light load increase (realistic spike)
+- `moderate: 25` - Moderate service stress (good for demos)
+- `heavy: 50` - Heavy application-level overload
+- `extreme: 100` - Extreme (overwhelms Envoy connection management)
 
-**Recommended Settings:**
+**⚠️ Important:** Start with `light` or `moderate`. The `extreme` setting overwhelms Envoy's connection layer before traffic reaches the frontend service, which isn't realistic for most scenarios.
 
-| Users | Flood Count | Total Requests/Cycle | Impact Level |
-| ----- | ----------- | -------------------- | ------------ |
-| 10    | 100         | 1,000                | ⚠️ Light     |
-| 25    | 100         | 2,500                | 🟡 Moderate  |
-| 50    | 100         | 5,000                | 🟠 Heavy     |
-| 100   | 100         | 10,000               | 🔴 Severe    |
+**Recommended Test Scenarios:**
+
+| Variant | Users | Requests/User | Total Req/Cycle | Impact | Target |
+|---------|-------|---------------|-----------------|--------|--------|
+| `light` | 25 | 10 | 250 | ⚠️ Light | Frontend service |
+| `moderate` | 25 | 25 | 625 | 🟡 Moderate | Frontend service |
+| `moderate` | 50 | 25 | 1,250 | 🟠 Heavy | Frontend service |
+| `heavy` | 50 | 50 | 2,500 | 🔴 Severe | Frontend service |
+| `extreme` | 25 | 100 | 2,500 | 💥 Connection exhaustion | **Envoy proxy** |
+| `extreme` | 50 | 100 | 5,000 | 💥 Complete overload | **Envoy proxy** |
+
+**Best for Learning:** Start with `moderate` at 25 users - shows clear service degradation without overwhelming connection management.
 
 ---
 
@@ -106,11 +115,11 @@ Errors: Minimal or none
 
 2. **Set User Count:**
 
-   - For first test: **25 users** (moderate impact)
+   - For first test: **25 users**
    - Spawn rate: **5** users per second
    - Runtime: **10 minutes** (600 seconds)
 
-3. **Start Load Generator** (but don't enable flag yet)
+3. **Start Load Generator** (but don't enable flag yet - this establishes baseline)
 
 ---
 
@@ -126,8 +135,9 @@ Errors: Minimal or none
 
 3. **Configure:**
 
-   - Set **defaultVariant** to `on`
-   - Confirm `on` variant value is `100`
+   - **Recommended for first test:** Set **defaultVariant** to `moderate` (25 requests/user)
+   - **Alternative:** Use `light` (10 requests/user) for gentler introduction
+   - **Advanced:** Use `heavy` (50) or `extreme` (100) for more severe tests
    - Save changes
 
 4. **Verify flag is active:**
@@ -287,15 +297,19 @@ Status: 2/2 Running (no restarts needed)
 
 ### Service Dependency Chain
 
+**With Realistic Settings (light/moderate/heavy):**
+
 ```
 Load Generator (Locust)
-    ↓ 100 requests per user per cycle
+    ↓ 10-50 requests per user per cycle
     ↓ Target: http://frontend-proxy:8080/
 Frontend-Proxy (Envoy)
-    ↓ No rate limiting → all requests pass through
+    ↓ Handles connection management
     ↓ Routes to backend services
+    ✅ Passes traffic through successfully
 Frontend (Python/Flask)
     ↓ Resource exhaustion: CPU/memory overwhelmed
+    ↓ Application-level overload → 500/503 errors
     ↓ Calls product-catalog, checkout, cart, etc.
 Product-Catalog (Go)
     ↓ Increased query volume
@@ -303,6 +317,26 @@ PostgreSQL
     ↓ More database queries
 Potential cascade failures
 ```
+
+**⚠️ With Extreme Setting (100 requests/user):**
+
+```
+Load Generator (Locust)
+    ↓ 100 requests per user per cycle
+    ↓ Opens thousands of concurrent connections
+Frontend-Proxy (Envoy)
+    ✋ Connection management overwhelmed
+    ↓ Cannot handle connection volume
+    ↓ Errors at proxy layer → 500/503/504
+    ↓ Many requests never reach frontend
+Frontend (Python/Flask)
+    ↓ Only receives partial traffic
+    ✅ May appear healthy (not getting overwhelmed)
+```
+
+**Key Difference:**
+- **Realistic settings:** Demonstrate application-level service overload
+- **Extreme setting:** Demonstrate infrastructure-level (proxy) exhaustion
 
 ### What Would Happen WITH Rate Limiting
 
@@ -373,11 +407,13 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected:**
+
 - **Baseline:** 50-100 requests/min
 - **During Flood:** 5,000-10,000 requests/min
 - **Spike:** 50-100x increase
 
 **What to look for:**
+
 - Sharp vertical spike when flag enabled
 - Sustained high volume while test runs
 - Rapid drop when flag disabled
@@ -397,11 +433,13 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected Status Codes:**
+
 - `500` Internal Server Error (service overwhelmed)
 - `503` Service Unavailable (connection pool exhausted)
 - `504` Gateway Timeout (response too slow)
 
 **Baseline vs Flood:**
+
 - Baseline: <1 error per minute (<0.1%)
 - Flood: 50-200 errors per minute (5-20%)
 
@@ -423,12 +461,12 @@ TIME RANGE: Last 15 minutes
 
 **Expected Degradation:**
 
-| Metric | Baseline | During Flood | Multiplier |
-|--------|----------|--------------|------------|
-| P50    | 20ms     | 200-500ms    | 10-25x     |
-| P95    | 50ms     | 1,000-2,000ms| 20-40x     |
-| P99    | 100ms    | 3,000-5,000ms| 30-50x     |
-| Max    | 200ms    | 10,000ms+    | 50-100x    |
+| Metric | Baseline | During Flood  | Multiplier |
+| ------ | -------- | ------------- | ---------- |
+| P50    | 20ms     | 200-500ms     | 10-25x     |
+| P95    | 50ms     | 1,000-2,000ms | 20-40x     |
+| P99    | 100ms    | 3,000-5,000ms | 30-50x     |
+| Max    | 200ms    | 10,000ms+     | 50-100x    |
 
 ---
 
@@ -444,6 +482,7 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected Errors:**
+
 - `TimeoutError`: Request timeout after 30s
 - `ConnectionError`: Connection pool exhausted
 - `OSError`: Too many open files
@@ -467,6 +506,7 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected Impact:**
+
 - Request volume: 2-3x increase (frontend calls it frequently)
 - Latency: 1.5-2x increase (database pressure)
 - Errors: Minimal to moderate (timeouts from frontend)
@@ -498,6 +538,7 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected Impact:**
+
 - Active connections: Slight increase (5-10 more)
 - Disk reads: Moderate increase (2-3x)
 - Cache hit ratio: May decrease slightly
@@ -529,6 +570,7 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected Impact:**
+
 - Requests: Moderate increase (frontend calls on some flows)
 - Latency: 1.2-1.5x increase
 - Errors: Minimal (mostly indirect)
@@ -550,6 +592,7 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Key Insight:**
+
 - Envoy processes ALL requests without filtering
 - Envoy errors = 0 (it's just passing traffic)
 - All errors happen in frontend service (500/503)
@@ -589,12 +632,12 @@ TIME RANGE: Last 15 minutes
 
 **Expected Pattern:**
 
-| Service          | Request Increase | Latency Increase | Error Rate Increase |
-|------------------|------------------|------------------|---------------------|
-| **frontend**     | 50-100x          | 20-40x           | 5-20%               |
-| product-catalog  | 2-3x             | 1.5-2x           | 0.5-2%              |
-| checkout         | 1.5-2x           | 1.2-1.5x         | 0-0.5%              |
-| postgresql       | Minimal          | Minimal          | 0%                  |
+| Service         | Request Increase | Latency Increase | Error Rate Increase |
+| --------------- | ---------------- | ---------------- | ------------------- |
+| **frontend**    | 50-100x          | 20-40x           | 5-20%               |
+| product-catalog | 2-3x             | 1.5-2x           | 0.5-2%              |
+| checkout        | 1.5-2x           | 1.2-1.5x         | 0-0.5%              |
+| postgresql      | Minimal          | Minimal          | 0%                  |
 
 **Key Insight:** Blast radius is **contained to frontend**, with moderate ripple effects downstream.
 
@@ -693,6 +736,7 @@ TIME RANGE: Last 30 minutes
 ```
 
 **Verify:**
+
 - ✅ Request volume returns to baseline within 1-2 minutes
 - ✅ Latency returns to <100ms within 2-5 minutes
 - ✅ Errors drop to <1/min within 2-3 minutes
