@@ -13,6 +13,7 @@
 **Purpose:** Detect when Envoy is actively rate limiting traffic
 
 **Query:**
+
 ```
 DATASET: opentelemetry-demo
 WHERE service.name = "frontend-proxy"
@@ -22,12 +23,14 @@ GROUP BY time(1m)
 ```
 
 **Alert Conditions:**
+
 - **Trigger:** COUNT > 50 requests/minute
 - **Duration:** For at least 2 minutes
 - **Severity:** CRITICAL
 - **Description:** "Envoy rate limit active - rejecting >50 req/min with HTTP 429"
 
 **Notification Message:**
+
 ```
 🔴 CRITICAL: Envoy Rate Limiting Active
 
@@ -47,6 +50,7 @@ Action: Investigate traffic source and consider scaling
 **Purpose:** Early warning before rate limit is fully saturated
 
 **Query:**
+
 ```
 DATASET: opentelemetry-demo
 WHERE service.name = "frontend-proxy"
@@ -56,6 +60,7 @@ GROUP BY time(1m)
 ```
 
 **Alert Conditions:**
+
 - **Trigger:** COUNT > 25 requests/minute
 - **Duration:** For at least 3 minutes
 - **Severity:** WARNING
@@ -68,6 +73,7 @@ GROUP BY time(1m)
 **Purpose:** Alert based on percentage of traffic rate limited
 
 **Query:**
+
 ```
 DATASET: opentelemetry-demo
 WHERE service.name = "frontend-proxy"
@@ -79,6 +85,7 @@ GROUP BY time(1m)
 ```
 
 **Alert Conditions:**
+
 - **Trigger:** pct_limited > 20%
 - **Duration:** For at least 2 minutes
 - **Severity:** CRITICAL
@@ -129,14 +136,14 @@ GROUP BY time(1m)
 
 **Answer: NO - 429 errors do NOT reach the frontend service**
 
-| Service          | What You See                          | Why                                    |
-|------------------|---------------------------------------|----------------------------------------|
-| **frontend-proxy** | ✅ HTTP 429 errors                   | Envoy returns 429 immediately          |
-| **frontend-proxy** | ✅ `x-local-rate-limit: true` header | Added by Envoy rate limit filter       |
-| **frontend-proxy** | ✅ High request count                | Sees ALL requests (passed + rejected)  |
-| **frontend**       | ❌ NO 429 errors                     | Never receives rate-limited requests   |
-| **frontend**       | ⚠️ Lower request count               | Only sees requests that passed Envoy   |
-| **Load Generator** | ✅ HTTP 429 responses                | Receives 429 from Envoy                |
+| Service            | What You See                         | Why                                   |
+| ------------------ | ------------------------------------ | ------------------------------------- |
+| **frontend-proxy** | ✅ HTTP 429 errors                   | Envoy returns 429 immediately         |
+| **frontend-proxy** | ✅ `x-local-rate-limit: true` header | Added by Envoy rate limit filter      |
+| **frontend-proxy** | ✅ High request count                | Sees ALL requests (passed + rejected) |
+| **frontend**       | ❌ NO 429 errors                     | Never receives rate-limited requests  |
+| **frontend**       | ⚠️ Lower request count               | Only sees requests that passed Envoy  |
+| **Load Generator** | ✅ HTTP 429 responses                | Receives 429 from Envoy               |
 
 ---
 
@@ -145,6 +152,7 @@ GROUP BY time(1m)
 ### In frontend-proxy (Envoy):
 
 **Expected Metrics:**
+
 ```
 http.status_code = 200:  ~500 req/min  (passed through)
 http.status_code = 429:  ~100+ req/min (rate limited)
@@ -152,6 +160,7 @@ Total requests:          ~600+ req/min
 ```
 
 **Spans/Traces:**
+
 - Short duration (< 1ms) - Envoy returns immediately
 - No downstream calls
 - `http.status_code = 429`
@@ -160,6 +169,7 @@ Total requests:          ~600+ req/min
 ### In frontend (Python/Flask):
 
 **Expected Metrics:**
+
 ```
 http.status_code = 200:  ~500 req/min (only successful requests)
 http.status_code = 429:  0 req/min    (NEVER sees these)
@@ -167,6 +177,7 @@ Total requests:          ~500 req/min (capped by Envoy)
 ```
 
 **Behavior:**
+
 - Frontend operates normally at ~500 req/min
 - NO 429 errors in frontend logs/traces
 - NO overload or resource exhaustion
@@ -175,6 +186,7 @@ Total requests:          ~500 req/min (capped by Envoy)
 ### In Load Generator (Locust):
 
 **Expected Stats:**
+
 ```
 Total requests sent:     625 req/cycle
 Successful (200):        500 req/cycle
@@ -189,6 +201,7 @@ Success rate:            80%
 ### 1. Rate Limit Impact by Endpoint
 
 **See which endpoints are being rate limited:**
+
 ```
 WHERE service.name = "frontend-proxy"
   AND http.status_code = 429
@@ -200,6 +213,7 @@ ORDER BY COUNT DESC
 ### 2. Rate Limit vs Success Comparison
 
 **Compare rate limited vs successful requests:**
+
 ```
 WHERE service.name = "frontend-proxy"
 CALCULATE success = COUNT_IF(http.status_code = 200)
@@ -211,17 +225,20 @@ GROUP BY time(1m)
 ### 3. Frontend Request Volume During Rate Limiting
 
 **Verify frontend is protected:**
+
 ```
 WHERE service.name = "frontend"
   AND name = "GET /"
 VISUALIZE COUNT
 GROUP BY time(1m)
 ```
+
 **Expected:** Flat line at ~500 req/min (never spikes above rate limit)
 
 ### 4. Load Generator Error Rate
 
 **See impact from client perspective:**
+
 ```
 WHERE service.name = "load-generator"
 CALCULATE total = COUNT
@@ -234,6 +251,7 @@ GROUP BY time(1m)
 ### 5. Response Time Comparison
 
 **429s are FAST (Envoy returns immediately):**
+
 ```
 WHERE service.name = "frontend-proxy"
 CALCULATE avg_200 = AVG(IF(http.status_code = 200, duration_ms))
@@ -241,6 +259,7 @@ CALCULATE avg_429 = AVG(IF(http.status_code = 429, duration_ms))
 VISUALIZE avg_200, avg_429
 GROUP BY time(1m)
 ```
+
 **Expected:** 429 duration << 200 duration (sub-millisecond)
 
 ---
@@ -250,14 +269,17 @@ GROUP BY time(1m)
 ### What This Demonstrates:
 
 1. **Rate Limiting is Perimeter Defense**
+
    - Envoy blocks traffic BEFORE it reaches the application
    - Frontend never sees the overload
 
 2. **429 Errors are NOT Application Errors**
+
    - They are infrastructure-level protection
    - Indicate capacity limits, not bugs
 
 3. **Blast Radius is CONTAINED**
+
    - Only frontend-proxy shows 429 metrics
    - Downstream services (frontend, checkout, etc.) operate normally
    - Database connections stay within limits
@@ -273,30 +295,36 @@ GROUP BY time(1m)
 ### When Alert Fires:
 
 1. **Verify Rate Limit is Protecting (Not Breaking) Service**
+
    ```
    WHERE service.name = "frontend"
      AND http.status_code >= 500
    VISUALIZE COUNT
    ```
+
    - If no 5xx errors → Rate limit is working as designed ✅
    - If 5xx errors present → Investigate application issues ❌
 
 2. **Check Traffic Source**
+
    ```
    WHERE service.name = "frontend-proxy"
      AND http.status_code = 429
    VISUALIZE COUNT
    GROUP BY http.client_ip
    ```
+
    - Single IP → Possible misbehaving client or attack
    - Distributed → Legitimate traffic spike
 
 3. **Review Frontend Resource Utilization**
+
    ```
    WHERE service.name = "frontend"
    VISUALIZE AVG(system.cpu.utilization), AVG(system.memory.utilization)
    GROUP BY time(1m)
    ```
+
    - Low utilization → Rate limit is working, consider increasing limit
    - High utilization → Rate limit is preventing overload ✅
 
@@ -312,14 +340,16 @@ GROUP BY time(1m)
 ### To Increase Rate Limit (e.g., to 1000 req/min):
 
 **Edit:** `src/frontend-proxy/envoy.tmpl.yaml`
+
 ```yaml
 token_bucket:
   max_tokens: 1000
   tokens_per_fill: 1000
-  fill_interval: 60s  # 1000 requests per minute
+  fill_interval: 60s # 1000 requests per minute
 ```
 
 **Apply:**
+
 ```bash
 kubectl create configmap envoy-config -n otel-demo \
   --from-file=envoy.tmpl.yaml=src/frontend-proxy/envoy.tmpl.yaml \
@@ -333,11 +363,12 @@ kubectl rollout restart deployment/frontend-proxy -n otel-demo
 **Option 1: Remove the filter entirely from `envoy.tmpl.yaml`**
 
 **Option 2: Set very high limit (effectively unlimited):**
+
 ```yaml
 token_bucket:
   max_tokens: 1000000
   tokens_per_fill: 1000000
-  fill_interval: 60s  # 1M req/min
+  fill_interval: 60s # 1M req/min
 ```
 
 ---
@@ -366,4 +397,3 @@ token_bucket:
 **Last Updated:** November 9, 2025  
 **Author:** OpenTelemetry Demo Chaos Engineering  
 **Environment:** Kubernetes with Envoy 1.34
-
