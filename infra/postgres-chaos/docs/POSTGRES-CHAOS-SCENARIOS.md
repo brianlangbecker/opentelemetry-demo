@@ -142,11 +142,11 @@ Expected: Increased errors and timeouts
 
 ---
 
-## Scenario 2: Table Lock - ORDER Table
+## Scenario 2: Table Lock
 
-### Purpose
+### Quick Reference
 
-Simulate a blocking query that locks the `order` table, demonstrating how table locks affect specific services differently.
+📋 **See:** `chaos-scenarios/postgres-table-lock.md` for complete guide with Honeycomb queries and alerts.
 
 ### What It Does
 
@@ -160,98 +160,16 @@ Simulate a blocking query that locks the `order` table, demonstrating how table 
 
 ### Expected Impact
 
-**PostgreSQL:**
+**accounting service:** Cannot write to `order` table → queries timeout (30+ seconds)  
+**product-catalog service:** Cannot read from `products` table → queries timeout (30+ seconds)  
+**checkout service:** Cascading failures from both services  
+**frontend:** Product pages fail to load
 
-- Lock: `order` and `products` tables fully locked
-- Blocked queries: All queries waiting on locks
-- CPU: Low (queries are blocked, not executing)
-
-**accounting service (order table locked):**
-
-- **SEVERELY IMPACTED** - Cannot write to `order` table
-- All INSERT operations blocked
-- Kafka message processing stalls
-- Query duration spikes to 30+ seconds (timeout)
-
-**product-catalog service (products table locked):**
-
-- **SEVERELY IMPACTED** - Cannot read from `products` table
-- All SELECT operations blocked
-- Product listing queries timeout
-- Frontend and checkout cannot get product data
-
-**checkout service:**
-
-- Cascading failures from product-catalog blocks
-- Cannot retrieve product information for orders
-- Timeout errors during checkout flow
-
-**frontend:**
-
-- Product pages fail to load (product-catalog blocked)
-- Checkout fails (product-catalog blocked)
-- User-visible "Product information unavailable" errors
-
-### Honeycomb Queries
-
-**Accounting Query Duration During Lock:**
-
-```
-Dataset: accounting
-WHERE db.system = "postgresql" AND db.statement contains "order"
-Calculate: P95(duration_ms), P99(duration_ms), MAX(duration_ms)
-Time: Last 10 minutes
-```
-
-Expected: P99 > 30,000ms (30+ seconds)
-
-**Product-Catalog Query Duration During Lock:**
-
-```
-Dataset: product-catalog
-WHERE db.system = "postgresql" AND db.statement contains "products"
-Calculate: P95(duration_ms), P99(duration_ms), MAX(duration_ms)
-Time: Last 10 minutes
-```
-
-Expected: P99 > 30,000ms (30+ seconds)
-
-**Blocked Query Pattern:**
-
-```
-Dataset: accounting OR product-catalog
-WHERE db.system = "postgresql" AND duration_ms > 10000
-Calculate: COUNT
-Breakdown: service.name, db.statement
-```
-
-Expected: All queries on locked tables are slow
-
-**Checkout Service Impact:**
-
-```
-Dataset: checkout
-WHERE rpc.service = "oteldemo.ProductCatalogService"
-Calculate: P95(duration_ms), COUNT
-Breakdown: http.status_code
-```
-
-Expected: High latency and timeout errors
-
-**Check Active Locks in PostgreSQL:**
-
-```bash
-kubectl exec -n otel-demo <POD> -- psql -U root otel -c "
-  SELECT
-    locktype,
-    relation::regclass,
-    mode,
-    granted,
-    pid
-  FROM pg_locks
-  WHERE locktype = 'relation' AND relation IN ('order'::regclass, 'products'::regclass);
-"
-```
+**Key Indicators:**
+- ✅ Query duration: 30,000+ ms (timeouts)
+- ✅ No connection errors (connections work, queries block)
+- ✅ Low CPU (<30%) - queries waiting, not executing
+- ✅ Both services affected: accounting (order) + product-catalog (products)
 
 **Key Insight:** High query duration with NO connection errors and LOW CPU indicates blocking/lock contention. Different services are affected based on which table they need access to.
 
