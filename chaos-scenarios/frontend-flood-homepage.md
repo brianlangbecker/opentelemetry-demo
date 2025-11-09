@@ -357,57 +357,345 @@ Frontend (Python/Flask)
 
 ---
 
-## 📈 **Honeycomb Queries**
+## 📈 **Honeycomb Queries for Blast Radius Analysis**
 
-### Frontend Request Rate
+### 🎯 PRIMARY IMPACT: Frontend Service
 
-```
-WHERE: service.name = "frontend" AND name = "GET /"
-VISUALIZE: COUNT
-GROUP BY: time(1m)
-TIME RANGE: Last 15 minutes
-```
-
-**Expected:** Spike from 50-100 req/min to 5,000-10,000 req/min
-
-### Frontend Error Rate
+#### 1. Frontend Request Volume Spike
 
 ```
-WHERE: service.name = "frontend" AND error EXISTS
-VISUALIZE: COUNT, COUNT / COUNT(service.name = "frontend") * 100 AS "Error %"
-BREAKDOWN: error
-GROUP BY: time(1m)
-TIME RANGE: Last 15 minutes
-```
-
-**Expected:** Error rate increases from <0.1% to 5-20%
-
-### Frontend Latency
-
-```
-WHERE: service.name = "frontend" AND name = "GET /"
-VISUALIZE: P50(duration_ms), P95(duration_ms), P99(duration_ms)
-GROUP BY: time(1m)
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+  AND name = "GET /"
+VISUALIZE COUNT
+GROUP BY time(1m)
 TIME RANGE: Last 15 minutes
 ```
 
 **Expected:**
+- **Baseline:** 50-100 requests/min
+- **During Flood:** 5,000-10,000 requests/min
+- **Spike:** 50-100x increase
 
-- P50: 20ms → 200ms (10x)
-- P95: 50ms → 1000ms (20x)
-- P99: 100ms → 3000ms+ (30x+)
+**What to look for:**
+- Sharp vertical spike when flag enabled
+- Sustained high volume while test runs
+- Rapid drop when flag disabled
 
-### Frontend HTTP Status Codes
+---
+
+#### 2. Frontend Error Rate (Service Overload)
 
 ```
-WHERE: service.name = "frontend"
-VISUALIZE: COUNT
-BREAKDOWN: http.status_code
-GROUP BY: time(1m)
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+  AND http.status_code >= 500
+VISUALIZE COUNT
+BREAKDOWN http.status_code
+GROUP BY time(1m)
 TIME RANGE: Last 15 minutes
 ```
 
-**Expected:** Increase in 500, 503, 504 status codes
+**Expected Status Codes:**
+- `500` Internal Server Error (service overwhelmed)
+- `503` Service Unavailable (connection pool exhausted)
+- `504` Gateway Timeout (response too slow)
+
+**Baseline vs Flood:**
+- Baseline: <1 error per minute (<0.1%)
+- Flood: 50-200 errors per minute (5-20%)
+
+---
+
+#### 3. Frontend Latency Degradation
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+  AND name = "GET /"
+VISUALIZE P50(duration_ms) AS "P50 (median)",
+         P95(duration_ms) AS "P95 (95th percentile)",
+         P99(duration_ms) AS "P99 (99th percentile)",
+         MAX(duration_ms) AS "Max"
+GROUP BY time(1m)
+TIME RANGE: Last 15 minutes
+```
+
+**Expected Degradation:**
+
+| Metric | Baseline | During Flood | Multiplier |
+|--------|----------|--------------|------------|
+| P50    | 20ms     | 200-500ms    | 10-25x     |
+| P95    | 50ms     | 1,000-2,000ms| 20-40x     |
+| P99    | 100ms    | 3,000-5,000ms| 30-50x     |
+| Max    | 200ms    | 10,000ms+    | 50-100x    |
+
+---
+
+#### 4. Frontend Error Types Breakdown
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+  AND error = true
+VISUALIZE COUNT
+BREAKDOWN exception.type, exception.message
+TIME RANGE: Last 15 minutes
+```
+
+**Expected Errors:**
+- `TimeoutError`: Request timeout after 30s
+- `ConnectionError`: Connection pool exhausted
+- `OSError`: Too many open files
+- `MemoryError`: Memory allocation failed
+
+---
+
+### 🔍 BLAST RADIUS: Downstream Services
+
+#### 5. Product-Catalog Impact (Secondary Target)
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "product-catalog"
+  AND span.kind = "server"
+VISUALIZE COUNT AS "Request Count",
+         P95(duration_ms) AS "P95 Latency",
+         COUNT(error = true) AS "Errors"
+GROUP BY time(1m)
+TIME RANGE: Last 15 minutes
+```
+
+**Expected Impact:**
+- Request volume: 2-3x increase (frontend calls it frequently)
+- Latency: 1.5-2x increase (database pressure)
+- Errors: Minimal to moderate (timeouts from frontend)
+
+**Query for Product-Catalog Errors:**
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "product-catalog"
+  AND error = true
+VISUALIZE COUNT
+BREAKDOWN exception.type
+GROUP BY time(1m)
+```
+
+---
+
+#### 6. PostgreSQL Database Impact (Tertiary)
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "postgresql-sidecar"
+  AND postgresql.backends EXISTS
+VISUALIZE MAX(postgresql.backends) AS "Active Connections",
+         MAX(postgresql.blks_read) AS "Disk Reads",
+         MAX(postgresql.blks_hit) AS "Cache Hits"
+GROUP BY time(1m)
+TIME RANGE: Last 15 minutes
+```
+
+**Expected Impact:**
+- Active connections: Slight increase (5-10 more)
+- Disk reads: Moderate increase (2-3x)
+- Cache hit ratio: May decrease slightly
+
+**Cache Hit Ratio During Flood:**
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "postgresql-sidecar"
+VISUALIZE (SUM(postgresql.blks_hit) / (SUM(postgresql.blks_hit) + SUM(postgresql.blks_read)) * 100) AS "Cache Hit %"
+GROUP BY time(1m)
+```
+
+**Expected:** 90-95% (should remain high - minimal DB impact)
+
+---
+
+#### 7. Checkout Service Impact (Tertiary)
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "checkout"
+  AND span.kind = "server"
+VISUALIZE COUNT AS "Requests",
+         P95(duration_ms) AS "P95 Latency",
+         COUNT(error = true) AS "Errors"
+GROUP BY time(1m)
+TIME RANGE: Last 15 minutes
+```
+
+**Expected Impact:**
+- Requests: Moderate increase (frontend calls on some flows)
+- Latency: 1.2-1.5x increase
+- Errors: Minimal (mostly indirect)
+
+---
+
+### 🌐 COMPARISON: Envoy vs Frontend Metrics
+
+#### 8. Envoy Proxy Passthrough Analysis
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend-proxy"
+VISUALIZE COUNT AS "Requests Through Envoy",
+         P95(duration_ms) AS "Envoy P95 Latency",
+         COUNT(error = true) AS "Envoy Errors"
+GROUP BY time(1m)
+TIME RANGE: Last 15 minutes
+```
+
+**Key Insight:**
+- Envoy processes ALL requests without filtering
+- Envoy errors = 0 (it's just passing traffic)
+- All errors happen in frontend service (500/503)
+- **This proves no rate limiting is configured**
+
+**If rate limiting were enabled:**
+
+```
+# This query would show 429 errors if rate limiting was active
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend-proxy"
+  AND http.status_code = 429
+VISUALIZE COUNT
+```
+
+**Expected with rate limiting:** Thousands of 429s
+**Actual without rate limiting:** 0 (all requests pass through)
+
+---
+
+### 📊 BLAST RADIUS SUMMARY QUERY
+
+#### 9. Multi-Service Impact Dashboard
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name IN ("frontend", "product-catalog", "checkout", "postgresql-sidecar")
+  AND span.kind = "server"
+VISUALIZE COUNT AS "Total Requests",
+         P95(duration_ms) AS "P95 Latency",
+         COUNT(error = true) AS "Error Count",
+         (COUNT(error = true) / COUNT(*) * 100) AS "Error Rate %"
+BREAKDOWN service.name
+GROUP BY time(1m)
+TIME RANGE: Last 15 minutes
+```
+
+**Expected Pattern:**
+
+| Service          | Request Increase | Latency Increase | Error Rate Increase |
+|------------------|------------------|------------------|---------------------|
+| **frontend**     | 50-100x          | 20-40x           | 5-20%               |
+| product-catalog  | 2-3x             | 1.5-2x           | 0.5-2%              |
+| checkout         | 1.5-2x           | 1.2-1.5x         | 0-0.5%              |
+| postgresql       | Minimal          | Minimal          | 0%                  |
+
+**Key Insight:** Blast radius is **contained to frontend**, with moderate ripple effects downstream.
+
+---
+
+### 🚨 REAL-TIME ALERTING QUERIES
+
+#### 10. High Error Rate Alert
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+  AND http.status_code >= 500
+CALCULATE COUNT / COUNT(service.name = "frontend") * 100 AS "Error Rate %"
+TIME RANGE: Last 5 minutes
+```
+
+**Alert Threshold:** Error Rate > 5%
+**Severity:** Warning → Critical at >15%
+
+---
+
+#### 11. Latency SLO Breach
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+  AND name = "GET /"
+CALCULATE P95(duration_ms)
+TIME RANGE: Last 5 minutes
+```
+
+**SLO Threshold:** P95 < 100ms
+**Alert Threshold:** P95 > 500ms (5x SLO breach)
+
+---
+
+#### 12. Service Availability
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+CALCULATE (COUNT(http.status_code < 500) / COUNT(*) * 100) AS "Availability %"
+TIME RANGE: Last 5 minutes
+```
+
+**SLO:** 99.9% availability
+**Alert Threshold:** <95% (severe degradation)
+
+---
+
+### 💡 ADVANCED ANALYSIS
+
+#### 13. Request Flow Visualization (Trace Analysis)
+
+```
+DATASET: opentelemetry-demo
+WHERE trace.parent_id NOT EXISTS  # Root spans only
+  AND service.name = "frontend-proxy"
+VISUALIZE COUNT
+BREAKDOWN service.name, name
+TIME RANGE: Last 15 minutes
+```
+
+**Shows:** Complete request flow through Envoy → Frontend → downstream services
+
+---
+
+#### 14. Concurrent User Load Analysis
+
+```
+DATASET: opentelemetry-demo
+WHERE app.synthetic_request = true  # From load generator
+  AND service.name = "frontend"
+CALCULATE COUNT / 60 AS "Requests per Second"
+GROUP BY time(1m)
+```
+
+**Correlate with:** Load generator user count to understand per-user impact
+
+---
+
+### 📉 RECOVERY VERIFICATION QUERIES
+
+#### 15. Post-Test Recovery Confirmation
+
+```
+DATASET: opentelemetry-demo
+WHERE service.name = "frontend"
+  AND name = "GET /"
+VISUALIZE COUNT AS "Request Volume",
+         P95(duration_ms) AS "P95 Latency",
+         COUNT(error = true) AS "Errors"
+GROUP BY time(1m)
+TIME RANGE: Last 30 minutes
+```
+
+**Verify:**
+- ✅ Request volume returns to baseline within 1-2 minutes
+- ✅ Latency returns to <100ms within 2-5 minutes
+- ✅ Errors drop to <1/min within 2-3 minutes
 
 ---
 
