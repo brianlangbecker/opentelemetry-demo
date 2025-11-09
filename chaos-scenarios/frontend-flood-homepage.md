@@ -66,14 +66,14 @@ Frontend Service (Python/Flask)
 
 **Recommended Test Scenarios:**
 
-| Variant | Users | Requests/User | Total Req/Cycle | Impact | Target |
-|---------|-------|---------------|-----------------|--------|--------|
-| `light` | 25 | 10 | 250 | ⚠️ Light | Frontend service |
-| `moderate` | 25 | 25 | 625 | 🟡 Moderate | Frontend service |
-| `moderate` | 50 | 25 | 1,250 | 🟠 Heavy | Frontend service |
-| `heavy` | 50 | 50 | 2,500 | 🔴 Severe | Frontend service |
-| `extreme` | 25 | 100 | 2,500 | 💥 Connection exhaustion | **Envoy proxy** |
-| `extreme` | 50 | 100 | 5,000 | 💥 Complete overload | **Envoy proxy** |
+| Variant    | Users | Requests/User | Total Req/Cycle | Impact                   | Target           |
+| ---------- | ----- | ------------- | --------------- | ------------------------ | ---------------- |
+| `light`    | 25    | 10            | 250             | ⚠️ Light                 | Frontend service |
+| `moderate` | 25    | 25            | 625             | 🟡 Moderate              | Frontend service |
+| `moderate` | 50    | 25            | 1,250           | 🟠 Heavy                 | Frontend service |
+| `heavy`    | 50    | 50            | 2,500           | 🔴 Severe                | Frontend service |
+| `extreme`  | 25    | 100           | 2,500           | 💥 Connection exhaustion | **Envoy proxy**  |
+| `extreme`  | 50    | 100           | 5,000           | 💥 Complete overload     | **Envoy proxy**  |
 
 **Best for Learning:** Start with `moderate` at 25 users - shows clear service degradation without overwhelming connection management.
 
@@ -335,6 +335,7 @@ Frontend (Python/Flask)
 ```
 
 **Key Difference:**
+
 - **Realistic settings:** Demonstrate application-level service overload
 - **Extreme setting:** Demonstrate infrastructure-level (proxy) exhaustion
 

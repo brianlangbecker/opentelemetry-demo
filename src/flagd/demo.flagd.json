@@ -97,7 +97,7 @@
         "heavy": 50,
         "extreme": 100
       },
-      "defaultVariant": "off"
+      "defaultVariant": "heavy"
     },
     "imageSlowLoad": {
       "description": "slow loading images in the frontend",
