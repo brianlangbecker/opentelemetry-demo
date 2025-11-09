@@ -7,6 +7,7 @@
 ## 🎯 **What It Does**
 
 Floods the frontend with massive homepage requests. With rate limiting configured:
+
 - ✅ **Requests that pass:** Get HTTP 200 → Forwarded to frontend (max 500 req/min)
 - ❌ **Requests that exceed:** Get HTTP 429 → Rejected by Envoy (never reach frontend)
 
@@ -24,7 +25,7 @@ Floods the frontend with massive homepage requests. With rate limiting configure
 token_bucket:
   max_tokens: 500
   tokens_per_fill: 500
-  fill_interval: 60s  # 500 requests per minute
+  fill_interval: 60s # 500 requests per minute
 ```
 
 **To Change:** Edit the values above, rebuild image, and redeploy.
@@ -36,6 +37,7 @@ token_bucket:
 ### 1. Enable Flood Flag
 
 **Via FlagD UI:**
+
 ```bash
 kubectl port-forward -n otel-demo svc/flagd 4000:4000
 # Open http://localhost:4000
@@ -43,6 +45,7 @@ kubectl port-forward -n otel-demo svc/flagd 4000:4000
 ```
 
 **Or via ConfigMap:**
+
 ```bash
 kubectl get configmap flagd-config -n otel-demo -o yaml
 # Edit defaultVariant to "heavy"
@@ -52,6 +55,7 @@ kubectl get configmap flagd-config -n otel-demo -o yaml
 ### 2. Start Load Generator
 
 **Via Locust UI:**
+
 ```bash
 kubectl port-forward -n otel-demo svc/load-generator 8089:8089
 # Open http://localhost:8089
@@ -62,6 +66,7 @@ kubectl port-forward -n otel-demo svc/load-generator 8089:8089
 ### 3. Expected Results
 
 **With "heavy" (50 req/user) + 25 users:**
+
 - Total requests: ~1,250 per cycle
 - **429 responses:** ~750 req/min (60%) ✅ - Rate limited by Envoy
 - **200 responses:** ~500 req/min (40%) ✅ - Pass through to frontend
@@ -92,21 +97,23 @@ TIME RANGE: Last 5 minutes
 ```
 WHERE service.name = "frontend-proxy"
   AND span.kind = "server"
-CALCULATE success = COUNT_IF(http.status_code = 200)
-CALCULATE limited = COUNT_IF(http.status_code = 429)
-VISUALIZE success, limited
+  AND http.status_code IN (200, 429)
+VISUALIZE COUNT
+BREAKDOWN http.status_code
 GROUP BY time(1m)
 ```
 
 **Expected:**
-- `success`: ~500 req/min (green line)
-- `limited`: ~750 req/min (red line)
+
+- `http.status_code = 200`: ~500 req/min (successful, passed to frontend)
+- `http.status_code = 429`: ~750 req/min (rate limited, rejected)
 
 ---
 
 ### Verify Frontend is Protected
 
 **Frontend should NOT see 429s:**
+
 ```
 WHERE service.name = "frontend"
   AND http.status_code = 429
@@ -116,6 +123,7 @@ VISUALIZE COUNT
 **Expected:** 0 (ZERO!) - Frontend never sees rate-limited requests
 
 **Frontend request volume (capped):**
+
 ```
 WHERE service.name = "frontend"
   AND name = "GET /"
@@ -126,6 +134,7 @@ GROUP BY time(1m)
 **Expected:** Flat line at ~500 req/min (never exceeds rate limit)
 
 **Frontend error rate (should be low):**
+
 ```
 WHERE service.name = "frontend"
   AND http.status_code >= 500
@@ -155,6 +164,7 @@ GROUP BY time(1m)
 ### Alert 1: Rate Limiting Active (429s)
 
 **Query:**
+
 ```
 WHERE service.name = "frontend-proxy"
   AND span.kind = "server"
@@ -164,11 +174,13 @@ GROUP BY time(1m)
 ```
 
 **Alert Conditions:**
+
 - **Trigger:** COUNT > 50 requests/minute
 - **Duration:** For at least 2 minutes
 - **Severity:** CRITICAL
 
 **Message:**
+
 ```
 🔴 Rate Limiting Active
 
@@ -183,6 +195,7 @@ Action: Review traffic source or increase rate limit
 ### Alert 2: Frontend Overload (500s)
 
 **Query:**
+
 ```
 WHERE service.name = "frontend"
   AND http.status_code >= 500
@@ -191,11 +204,13 @@ GROUP BY time(1m)
 ```
 
 **Alert Conditions:**
+
 - **Trigger:** COUNT > 10 errors/minute
 - **Duration:** For at least 2 minutes
 - **Severity:** CRITICAL
 
 **Message:**
+
 ```
 🔴 Frontend Service Overload
 
@@ -213,12 +228,12 @@ Action: Check if rate limiting is protecting frontend
 **Flag:** `loadGeneratorFloodHomepage`
 
 | Variant    | Requests/User | With 25 Users | Total | With Rate Limit (500/min) |
-| ---------- | ------------- | ------------- | ------ | -------------------------- |
-| `off`      | 0             | 0             | 0      | All pass                   |
-| `light`    | 10            | 250           | 250    | All pass                   |
-| `moderate` | 25            | 625           | 625    | 500 pass, 125 get 429      |
-| `heavy`    | 50            | 1,250         | 1,250  | 500 pass, 750 get 429      |
-| `extreme`  | 100           | 2,500         | 2,500  | 500 pass, 2,000 get 429    |
+| ---------- | ------------- | ------------- | ----- | ------------------------- |
+| `off`      | 0             | 0             | 0     | All pass                  |
+| `light`    | 10            | 250           | 250   | All pass                  |
+| `moderate` | 25            | 625           | 625   | 500 pass, 125 get 429     |
+| `heavy`    | 50            | 1,250         | 1,250 | 500 pass, 750 get 429     |
+| `extreme`  | 100           | 2,500         | 2,500 | 500 pass, 2,000 get 429   |
 
 **Recommended:** Start with `moderate` (25 req/user) at 25 users = 625 total requests.
 
@@ -229,14 +244,16 @@ Action: Check if rate limiting is protecting frontend
 ### To Lower (More Protection)
 
 **Edit:** `src/frontend-proxy/envoy.tmpl.yaml`
+
 ```yaml
 token_bucket:
-  max_tokens: 200  # Change from 500 to 200
+  max_tokens: 200 # Change from 500 to 200
   tokens_per_fill: 200
   fill_interval: 60s
 ```
 
 **Rebuild and Deploy:**
+
 ```bash
 # Build
 docker build -t <your-registry>/frontend-proxy:rate-limit-200 \
@@ -260,6 +277,7 @@ Same process, increase `max_tokens` and `tokens_per_fill` values.
 ## 🎓 **Understanding the Flow**
 
 **With Rate Limiting (Current Setup):**
+
 ```
 Load Generator
     ↓ 1,250 req/min
@@ -272,6 +290,7 @@ Frontend
 ```
 
 **Without Rate Limiting:**
+
 ```
 Load Generator
     ↓ 1,250 req/min
@@ -311,4 +330,3 @@ Frontend
 **Rate Limit:** 500 requests/minute  
 **Flag:** `loadGeneratorFloodHomepage`  
 **Status:** Active and protecting frontend service
-
