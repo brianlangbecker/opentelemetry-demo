@@ -3,7 +3,7 @@ components:
     replicas: 1
     envOverrides:
       - name: LOCUST_BROWSER_TRAFFIC_ENABLED
-        value: "false"
+        value: "true"
     resources:
       limits:
         memory: 4Gi
@@ -61,6 +61,12 @@ components:
         value: https://otel-demo.spicy.honeydemo.io/otlp-http/v1/traces
 
   frontend-proxy:
+    # Note: Rate limiting (500 req/min) is configured in src/frontend-proxy/envoy.tmpl.yaml
+    # To use rate limiting, you must build a custom image with the updated envoy.tmpl.yaml
+    # and override the image:
+    # image:
+    #   repository: <your-registry>/frontend-proxy
+    #   tag: rate-limit-500
     service:
       type: NodePort
     ingress:

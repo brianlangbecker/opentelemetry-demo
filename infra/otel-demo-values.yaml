@@ -1,5 +1,8 @@
 components:
   load-generator:
+    envOverrides:
+      - name: LOCUST_BROWSER_TRAFFIC_ENABLED
+        value: "true"
     resources:
       limits:
         memory: 4Gi
