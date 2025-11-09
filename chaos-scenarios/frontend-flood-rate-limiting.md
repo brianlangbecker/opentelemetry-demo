@@ -287,7 +287,8 @@ Frontend
 ## 📋 **Key Points**
 
 1. **429s are NOT errors** - Rate limiting is working correctly (server-side)
-   - See `why-429-not-error.md` for technical details
+   - Server-side: 429 = protection working (not an error)
+   - Client-side: 429 = request rejected (is an error)
 2. **Frontend is protected** - Only sees ~500 req/min, never 429s
 3. **Monitor server-side spans** - Use `span.kind = "server"` in queries
 4. **Query by status code** - Use `http.status_code = 429`, not `error = true`

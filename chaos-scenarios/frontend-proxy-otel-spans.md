@@ -282,4 +282,4 @@ WHERE service.name = "frontend-proxy"
 ---
 
 **Last Updated:** November 9, 2025  
-**Related:** `why-429-not-error.md`, `http-status-code-0.md`
+**Related:** `frontend-flood-rate-limiting.md` (rate limiting guide)
