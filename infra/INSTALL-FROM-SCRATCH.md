@@ -27,6 +27,7 @@ cd infra
 ```
 
 This script will:
+
 1. ✅ Create the `otel-demo` namespace
 2. ✅ Create PersistentVolumeClaim for PostgreSQL (2 GB)
 3. ✅ Create OTel Collector sidecar ConfigMap
@@ -36,6 +37,7 @@ This script will:
 7. ✅ Verify everything is running
 
 **For local Kubernetes (Docker Desktop, k3d, minikube):**
+
 ```bash
 ./install-with-persistence.sh otel-demo-values.yaml
 ```
@@ -57,10 +59,12 @@ kubectl apply -f postgres-persistent-setup.yaml
 ```
 
 **What this does:**
+
 - Creates a 2 GB PersistentVolumeClaim named `postgresql-data`
 - Creates a ConfigMap `postgres-config` with PostgreSQL settings
 
 **Verify:**
+
 ```bash
 kubectl get pvc -n otel-demo
 # Should show: postgresql-data   Bound   ...   2Gi
@@ -73,12 +77,14 @@ kubectl apply -f postgres-otel-configmap.yaml
 ```
 
 **What this does:**
+
 - Creates ConfigMap `postgres-otel-config` with comprehensive metrics configuration
 - Enables 17+ PostgreSQL metrics (connections, cache, WAL, indexes, tables)
 - Enables filesystem metrics (segregated by volume)
 - Enables disk I/O, memory, and CPU metrics
 
 **Verify:**
+
 ```bash
 kubectl get configmap -n otel-demo postgres-otel-config
 ```
@@ -86,6 +92,7 @@ kubectl get configmap -n otel-demo postgres-otel-config
 ### Step 4: Install Helm Chart
 
 **For AWS/Cloud:**
+
 ```bash
 helm upgrade --install otel-demo open-telemetry/opentelemetry-demo \
   -n otel-demo \
@@ -95,6 +102,7 @@ helm upgrade --install otel-demo open-telemetry/opentelemetry-demo \
 ```
 
 **For Local Kubernetes:**
+
 ```bash
 helm upgrade --install otel-demo open-telemetry/opentelemetry-demo \
   -n otel-demo \
@@ -104,6 +112,7 @@ helm upgrade --install otel-demo open-telemetry/opentelemetry-demo \
 ```
 
 **Wait for all pods to be ready:**
+
 ```bash
 kubectl get pods -n otel-demo
 ```
@@ -116,11 +125,13 @@ kubectl patch deployment postgresql -n otel-demo \
 ```
 
 **What this does:**
+
 - Mounts the `postgresql-data` PVC to `/var/lib/postgresql/data`
 - Sets PostgreSQL shared_buffers and cache size
 - Configures resource limits
 
 **Wait for rollout:**
+
 ```bash
 kubectl rollout status deployment/postgresql -n otel-demo --timeout=2m
 ```
@@ -128,12 +139,14 @@ kubectl rollout status deployment/postgresql -n otel-demo --timeout=2m
 ### Step 6: Add OTel Collector Sidecar
 
 **Option A: Using the patch file (if your cluster supports strategic merge):**
+
 ```bash
 kubectl patch deployment postgresql -n otel-demo \
   --patch-file postgres-otel-sidecar-patch.yaml
 ```
 
 **Option B: Using JSON patch (works everywhere):**
+
 ```bash
 cat > /tmp/add-otel-sidecar.json <<'EOF'
 [
@@ -205,6 +218,7 @@ kubectl patch deployment postgresql -n otel-demo --type='json' -p="$(cat /tmp/ad
 ```
 
 **Wait for rollout:**
+
 ```bash
 kubectl rollout status deployment/postgresql -n otel-demo --timeout=3m
 ```
@@ -238,7 +252,8 @@ kubectl logs -n otel-demo -l app.kubernetes.io/name=postgresql -c otel-collector
 ```
 
 **Look for:**
-- ✅ `info	Metrics	{...}` - Metrics are being collected
+
+- ✅ `info Metrics {...}` - Metrics are being collected
 - ✅ `resource metrics: 7, metrics: 17, data points: 300+` - Metrics count
 - ❌ No errors about connection refused or config issues
 
@@ -253,6 +268,7 @@ kubectl exec -n otel-demo -it deployment/postgresql -- psql -U root -d otel -c "
 ### Verify Metrics in Honeycomb
 
 **Query for sidecar metrics:**
+
 ```
 WHERE service.name = "postgresql-sidecar"
   AND postgresql.db_size EXISTS
@@ -262,10 +278,12 @@ TIME RANGE: Last 10 minutes
 ```
 
 **Expected results:**
+
 - `otel` database: ~700 MB
 - `postgres` database: ~7.3 MB
 
 **Query for filesystem metrics:**
+
 ```
 WHERE service.name = "postgresql-sidecar"
   AND system.filesystem.usage EXISTS
@@ -274,6 +292,7 @@ VISUALIZE SUM(system.filesystem.usage)
 ```
 
 **Expected results:**
+
 - `/var/lib/postgresql/data` with `used` and `free` states
 - Shows actual disk usage on PVC
 
@@ -282,27 +301,35 @@ VISUALIZE SUM(system.filesystem.usage)
 ## Access the Demo
 
 ### Frontend (Web Store)
+
 ```bash
 kubectl port-forward -n otel-demo svc/frontend-proxy 8080:8080
 ```
+
 Open: http://localhost:8080
 
 ### Jaeger (Distributed Tracing)
+
 ```bash
 kubectl port-forward -n otel-demo svc/jaeger-query 16686:16686
 ```
+
 Open: http://localhost:16686
 
 ### Locust (Load Generator)
+
 ```bash
 kubectl port-forward -n otel-demo svc/load-generator 8089:8089
 ```
+
 Open: http://localhost:8089
 
 ### Grafana (Dashboards)
+
 ```bash
 kubectl port-forward -n otel-demo svc/grafana 3000:3000
 ```
+
 Open: http://localhost:3000
 
 ---
@@ -312,11 +339,13 @@ Open: http://localhost:3000
 ### PostgreSQL Pod Not Starting
 
 **Check events:**
+
 ```bash
 kubectl describe pod -n otel-demo -l app.kubernetes.io/name=postgresql
 ```
 
 **Common issues:**
+
 - PVC not bound: Check `kubectl get pvc -n otel-demo`
 - ConfigMap missing: Check `kubectl get configmap -n otel-demo postgres-otel-config`
 - Resource limits: Check node capacity with `kubectl describe nodes`
@@ -324,11 +353,13 @@ kubectl describe pod -n otel-demo -l app.kubernetes.io/name=postgresql
 ### OTel Collector Sidecar Crashing
 
 **Check logs:**
+
 ```bash
 kubectl logs -n otel-demo -l app.kubernetes.io/name=postgresql -c otel-collector
 ```
 
 **Common issues:**
+
 - `connection refused` to PostgreSQL: PostgreSQL may still be starting, wait 30s
 - `connection refused` to otel-collector: Check service exists `kubectl get svc -n otel-demo otel-collector`
 - Config errors: Verify ConfigMap applied correctly
@@ -336,11 +367,13 @@ kubectl logs -n otel-demo -l app.kubernetes.io/name=postgresql -c otel-collector
 ### No Metrics in Honeycomb
 
 **1. Check sidecar is exporting:**
+
 ```bash
 kubectl logs -n otel-demo -l app.kubernetes.io/name=postgresql -c otel-collector | grep "Metrics"
 ```
 
 **2. Check main collector is receiving:**
+
 ```bash
 kubectl logs -n otel-demo -l app.kubernetes.io/name=opentelemetry-collector | grep postgresql-sidecar
 ```
@@ -351,6 +384,7 @@ Check your `otel-demo-values.yaml` for correct Honeycomb API key and endpoint.
 ### Data Not Persisting
 
 **Check PVC is mounted:**
+
 ```bash
 kubectl get pod -n otel-demo -l app.kubernetes.io/name=postgresql -o jsonpath='{.items[0].spec.volumes[?(@.name=="postgresql-data")]}'
 ```
@@ -358,6 +392,7 @@ kubectl get pod -n otel-demo -l app.kubernetes.io/name=postgresql -o jsonpath='{
 **Should show:** `persistentVolumeClaim` (not `emptyDir`)
 
 **Check volume mount:**
+
 ```bash
 kubectl exec -n otel-demo deployment/postgresql -- df -h | grep pgdata
 ```
@@ -395,15 +430,15 @@ kubectl delete namespace otel-demo
 
 ## Files Reference
 
-| File | Purpose |
-|------|---------|
-| `install-with-persistence.sh` | One-command installation script |
-| `postgres-persistent-setup.yaml` | PVC and PostgreSQL ConfigMap |
-| `postgres-patch.yaml` | Patches PostgreSQL to use PVC |
-| `postgres-otel-configmap.yaml` | OTel Collector sidecar configuration |
-| `postgres-otel-sidecar-patch.yaml` | Adds sidecar to PostgreSQL pod |
-| `otel-demo-values.yaml` | Helm values for local Kubernetes |
-| `otel-demo-values-aws.yaml` | Helm values for AWS/cloud |
+| File                               | Purpose                              |
+| ---------------------------------- | ------------------------------------ |
+| `install-with-persistence.sh`      | One-command installation script      |
+| `postgres-persistent-setup.yaml`   | PVC and PostgreSQL ConfigMap         |
+| `postgres-patch.yaml`              | Patches PostgreSQL to use PVC        |
+| `postgres-otel-configmap.yaml`     | OTel Collector sidecar configuration |
+| `postgres-otel-sidecar-patch.yaml` | Adds sidecar to PostgreSQL pod       |
+| `otel-demo-values.yaml`            | Helm values for local Kubernetes     |
+| `otel-demo-values-aws.yaml`        | Helm values for AWS/cloud            |
 
 ---
 
@@ -438,4 +473,3 @@ kubectl delete namespace otel-demo
 ---
 
 **Questions?** Check the [PostgreSQL Sidecar Metrics Guide](postgres-chaos/docs/POSTGRESQL-SIDECAR-METRICS.md)
-
