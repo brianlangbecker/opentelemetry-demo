@@ -37,7 +37,7 @@ Frontend Service (Python/Flask)
 
 **Rate limit is configured** in `src/frontend-proxy/envoy.tmpl.yaml` with `envoy.filters.http.local_ratelimit` at 500 req/min.
 
-📋 **See:** `chaos-scenarios/envoy-rate-limit-alert.md` for rate limit monitoring and alerting.
+📋 **See:** `chaos-scenarios/envoy-rate-limiting.md` for rate limit setup and monitoring.
 
 ---
 
