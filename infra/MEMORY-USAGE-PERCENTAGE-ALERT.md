@@ -27,14 +27,22 @@
    - Returns `null` if limit not available
    - **Result:** Memory usage as percentage (0-100%)
 
-4. **If memory.limit is NOT available, use utilization metric:**
+4. **If memory.limit is NOT available, use memory.available:**
    
-   If `k8s.pod.memory_limit_utilization` exists (already a percentage 0.0-1.0):
+   If `k8s.pod.memory.available` exists, calculate total memory as `usage + available`:
    ```
-   $k8s.pod.memory_limit_utilization * 100
+   IF(
+     AND(
+       $k8s.pod.memory.usage EXISTS,
+       $k8s.pod.memory.available EXISTS,
+       ($k8s.pod.memory.usage + $k8s.pod.memory.available) > 0
+     ),
+     ($k8s.pod.memory.usage / ($k8s.pod.memory.usage + $k8s.pod.memory.available)) * 100,
+     null
+   )
    ```
    
-   **Or check if it exists first:**
+   **Or use utilization metric if available:**
    ```
    IF(
      $k8s.pod.memory_limit_utilization EXISTS,
@@ -57,6 +65,37 @@ IF(
   null
 )
 ```
+
+**Best Formula (tries limit first, then available, then utilization):**
+```
+COALESCE(
+  IF(
+    AND($k8s.pod.memory.usage EXISTS, $k8s.pod.memory.limit EXISTS, $k8s.pod.memory.limit > 0),
+    ($k8s.pod.memory.usage / $k8s.pod.memory.limit) * 100,
+    null
+  ),
+  IF(
+    AND(
+      $k8s.pod.memory.usage EXISTS,
+      $k8s.pod.memory.available EXISTS,
+      ($k8s.pod.memory.usage + $k8s.pod.memory.available) > 0
+    ),
+    ($k8s.pod.memory.usage / ($k8s.pod.memory.usage + $k8s.pod.memory.available)) * 100,
+    null
+  ),
+  IF(
+    $k8s.pod.memory_limit_utilization EXISTS,
+    $k8s.pod.memory_limit_utilization * 100,
+    null
+  )
+)
+```
+
+**What this does:**
+- First tries: `usage / limit` (if limit exists)
+- Then tries: `usage / (usage + available)` (if available exists)
+- Finally tries: `memory_limit_utilization * 100` (if utilization exists)
+- Returns `null` if none are available
 
 ---
 
@@ -127,9 +166,12 @@ Action:
 Kubernetes pod metrics include:
 
 - `k8s.pod.memory.usage` - Current memory usage (bytes) ✅
+- `k8s.pod.memory.available` - Available memory (bytes) ✅
 - `k8s.pod.memory.working_set` - Working set memory (bytes) - alternative to usage
 - `k8s.pod.memory.limit` - Memory limit (bytes) - **may not always be present**
 - `k8s.pod.memory_limit_utilization` - Memory usage as percentage (0.0 to 1.0) - **may already be available** ✅
+
+**Note:** Total memory = `usage + available` (if both are present)
 
 ---
 
@@ -193,7 +235,9 @@ GROUP BY k8s.pod.name, time(1m)
 - **Frequency:** Every 1 minute
 - **Severity:** WARNING
 
-**Note:** If `k8s.pod.memory.limit` is not available, use `k8s.pod.memory_limit_utilization` instead (see Alternative section above).
+**Note:** If `k8s.pod.memory.limit` is not available, you can:
+1. Use `k8s.pod.memory.available` to calculate total: `usage / (usage + available) * 100`
+2. Use `k8s.pod.memory_limit_utilization` directly: `memory_limit_utilization * 100`
 
 ---
 
@@ -242,19 +286,29 @@ GROUP BY k8s.pod.name, time(5m)
 
 If `k8s.pod.memory.limit` is not present:
 
-1. **Check if limit is set in Kubernetes:**
-   ```bash
-   kubectl get pod <pod-name> -o jsonpath='{.spec.containers[0].resources.limits.memory}'
+1. **Use memory.available to calculate total:**
+   ```
+   WHERE k8s.pod.memory.usage EXISTS
+     AND k8s.pod.memory.available EXISTS
+   VISUALIZE (MAX(k8s.pod.memory.usage) / (MAX(k8s.pod.memory.usage) + MAX(k8s.pod.memory.available))) * 100
+   GROUP BY k8s.pod.name, time(1m)
    ```
 
 2. **Use utilization metric if available:**
    ```
    WHERE k8s.pod.memory_limit_utilization EXISTS
+   VISUALIZE MAX(k8s.pod.memory_limit_utilization) * 100
+   GROUP BY k8s.pod.name, time(1m)
    ```
 
-3. **Or calculate from node memory:**
+3. **Check if limit is set in Kubernetes:**
+   ```bash
+   kubectl get pod <pod-name> -o jsonpath='{.spec.containers[0].resources.limits.memory}'
    ```
-   (MAX(k8s.pod.memory.working_set) / MAX(k8s.node.memory.allocatable)) * 100
+
+4. **Or calculate from node memory:**
+   ```
+   (MAX(k8s.pod.memory.usage) / MAX(k8s.node.memory.allocatable)) * 100
    ```
 
 ### Memory Usage Always 0 or Null
