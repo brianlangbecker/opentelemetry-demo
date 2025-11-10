@@ -281,10 +281,11 @@ TIME RANGE: Last 15 minutes
 
 **Note:** Mix of timeout and resolution errors, not just "no such host".
 
-#### Query 5: Success Rate Degradation
+#### Query 5: Success Rate Degradation (Outbound Calls Only)
 
 ```
 WHERE service.name = frontend
+  AND span.kind = "client"
 VISUALIZE (COUNT WHERE otel.status_code = OK) / COUNT
 GROUP BY time(1m)
 TIME RANGE: Last 15 minutes
@@ -294,6 +295,8 @@ TIME RANGE: Last 15 minutes
 - **Before:** 100% success rate
 - **After scaling down:** 60-80% success rate (not 0% like complete failure)
 - **Shows partial degradation** vs complete outage
+
+**Why filter to client spans:** Only outbound service calls require DNS resolution. This excludes server spans (incoming requests) and internal operations that wouldn't be affected by DNS issues.
 
 ---
 
@@ -519,14 +522,47 @@ kubectl scale deployment coredns -n kube-system --replicas=2
 
 ### Alert 1: High DNS Error Rate (But Not 100%)
 
+**Step 1: Create Calculated Field (Derived Column)**
+
+In Honeycomb, create a calculated field named `dns_error_rate`:
+
+**Formula:**
 ```
-TRIGGER: (COUNT WHERE error.message CONTAINS "lookup") / COUNT BETWEEN 0.2 AND 0.8
-WHERE: service.name = frontend
-FREQUENCY: Every 1 minute
-ACTION: Warning - DNS capacity issues (partial failure)
+DIV(
+  COUNT(WHERE span.kind = "client" AND error = true AND (
+    error.message CONTAINS "lookup" OR 
+    error.message CONTAINS "no such host" OR
+    error.message CONTAINS "name resolution"
+  )),
+  COUNT(WHERE span.kind = "client")
+)
 ```
 
-**Why 0.2-0.8:** Catches **partial failures** (20-80% error rate), distinguishes from complete outage.
+**What this does:**
+- **Numerator:** Counts DNS errors on **client spans** (outbound service calls only)
+- **Denominator:** Total **client spans** (only requests that could be affected by DNS)
+- **Excludes:** Server spans, internal operations, database queries that don't require DNS
+
+**Step 2: Create Query for Alert**
+
+```
+WHERE service.name = frontend
+  AND span.kind = "client"
+VISUALIZE dns_error_rate
+GROUP BY time(1m)
+```
+
+**Step 3: Create Trigger**
+
+- **Name:** DNS Capacity Issues (Partial Failures)
+- **Frequency:** 60 seconds (1 minute)
+- **Threshold:** `dns_error_rate BETWEEN 0.2 AND 0.8`
+- **Alert Type:** `on_true`
+- **Severity:** WARNING
+
+**Why 0.2-0.8:** Catches **partial failures** (20-80% error rate), distinguishes from complete outage (100% error rate) or normal operation (<20% error rate).
+
+**Why filter to client spans:** Only outbound service calls require DNS resolution. Server spans (incoming requests) and internal operations (database queries, in-memory processing) are not affected by DNS issues.
 
 ### Alert 2: P99 Latency Degradation
 
