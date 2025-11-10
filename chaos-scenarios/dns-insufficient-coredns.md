@@ -524,63 +524,92 @@ kubectl scale deployment coredns -n kube-system --replicas=2
 
 **Step 1: Create Calculated Field (Derived Column)**
 
-In Honeycomb, create a calculated field named `is_dns_error`:
+In Honeycomb, create a calculated field named `is_dns_eligible`:
 
 **Formula:**
 ```
-IF(OR(
-   CONTAINS($exception.message,"lookup"),
-   CONTAINS($exception.message,"no such host"),
-   CONTAINS($exception.message,"name resolution")
-), 1, 0)
+IF(AND(
+   EQUALS($span.kind,"client"),
+   OR(
+      EXISTS($http.method),
+      EXISTS($rpc.method),
+      EXISTS($http.url),
+      EXISTS($url.full)
+   )
+), 1, null)
 ```
 
 **What this does:**
-- **Spans with DNS errors:** Returns `1`
-- **Spans without DNS errors:** Returns `0`
-- **Note:** Filter to `span.kind = "client"` in your query to only count outbound calls
+- **HTTP/gRPC client spans:** Returns `1` (these require DNS resolution)
+- **Other spans:** Returns `null` (excluded - database, Kafka, internal ops don't use DNS)
+
+**Then create a second calculated field `is_dns_error`:**
+
+**Formula:**
+```
+IF(AND(
+   $is_dns_eligible = 1,
+   OR(
+      CONTAINS($exception.message,"lookup"),
+      CONTAINS($exception.message,"no such host"),
+      CONTAINS($exception.message,"name resolution")
+   )
+), 1, IF($is_dns_eligible = 1, 0, null))
+```
+
+**What this does:**
+- **DNS-eligible spans with DNS errors:** Returns `1`
+- **DNS-eligible spans without DNS errors:** Returns `0`
+- **Non-DNS-eligible spans:** Returns `null` (excluded)
 
 **Alternative (if using `error.message` instead of `exception.message`):**
 ```
-IF(OR(
-   CONTAINS($error.message,"lookup"),
-   CONTAINS($error.message,"no such host"),
-   CONTAINS($error.message,"name resolution")
-), 1, 0)
+IF(AND(
+   $is_dns_eligible = 1,
+   OR(
+      CONTAINS($error.message,"lookup"),
+      CONTAINS($error.message,"no such host"),
+      CONTAINS($error.message,"name resolution")
+   )
+), 1, IF($is_dns_eligible = 1, 0, null))
 ```
 
-**Then create a second calculated field `dns_error_rate`:**
+**Then create a third calculated field `dns_error_rate`:**
 
 **Formula:**
 ```
-DIV(SUM($is_dns_error), COUNT())
+DIV(SUM($is_dns_error), COUNT(WHERE $is_dns_eligible = 1))
 ```
 
 **What this does:**
-- **Numerator:** Sum of `is_dns_error` (counts DNS errors)
-- **Denominator:** Total count (filter to client spans in query)
+- **Numerator:** Sum of `is_dns_error` (counts DNS errors on eligible spans)
+- **Denominator:** Count of all DNS-eligible spans (HTTP/gRPC client calls)
 - **Result:** Error rate between 0.0 (0%) and 1.0 (100%)
 
 **Step 2: Create Query for Alert**
 
-**Important:** Filter to `span.kind = "client"` in the WHERE clause to only count outbound service calls:
-
+**Query (using calculated field):**
 ```
 WHERE service.name = frontend
-  AND span.kind = "client"
 VISUALIZE dns_error_rate
 GROUP BY time(1m)
 ```
 
-**Or calculate directly in query (simpler approach):**
+**Or calculate directly in query:**
 ```
 WHERE service.name = frontend
-  AND span.kind = "client"
-VISUALIZE DIV(SUM(is_dns_error), COUNT())
+VISUALIZE DIV(
+  SUM(is_dns_error), 
+  COUNT(WHERE is_dns_eligible = 1)
+)
 GROUP BY time(1m)
 ```
 
-**Why filter in query:** Since `span.kind` isn't available in the exception context, we filter to client spans in the query itself. This ensures we only count outbound service calls that could be affected by DNS issues.
+**Why this approach:**
+- `is_dns_eligible` filters to only HTTP/gRPC client spans (excludes database, Kafka, internal ops)
+- `is_dns_error` marks DNS errors on eligible spans only
+- Rate calculation only includes spans that could potentially have DNS issues
+- No need to filter in WHERE clause - the calculated fields handle it
 
 **Step 3: Create Trigger**
 
