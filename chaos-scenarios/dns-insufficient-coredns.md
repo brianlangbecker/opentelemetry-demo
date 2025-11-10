@@ -595,7 +595,7 @@ GROUP BY time(1m)
 WHERE service.name = frontend
 VISUALIZE DIV(
   SUM(is_dns_error), 
-  COUNT(WHERE is_dns_eligible = 1)
+  COUNT(WHERE is_dns_error != null)
 )
 GROUP BY time(1m)
 ```
