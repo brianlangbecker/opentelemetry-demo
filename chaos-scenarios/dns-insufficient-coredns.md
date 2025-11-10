@@ -524,24 +524,46 @@ kubectl scale deployment coredns -n kube-system --replicas=2
 
 **Step 1: Create Calculated Field (Derived Column)**
 
-In Honeycomb, create a calculated field named `dns_error_rate`:
+In Honeycomb, create a calculated field named `is_dns_error`:
 
 **Formula:**
 ```
-DIV(
-  COUNT(WHERE span.kind = "client" AND error = true AND (
-    error.message CONTAINS "lookup" OR 
-    error.message CONTAINS "no such host" OR
-    error.message CONTAINS "name resolution"
-  )),
-  COUNT(WHERE span.kind = "client")
-)
+IF(EQUALS($span.kind,"client"), 
+   IF(OR(
+      CONTAINS($exception.message,"lookup"),
+      CONTAINS($exception.message,"no such host"),
+      CONTAINS($exception.message,"name resolution")
+   ), 1, 0), 
+   null)
 ```
 
 **What this does:**
-- **Numerator:** Counts DNS errors on **client spans** (outbound service calls only)
-- **Denominator:** Total **client spans** (only requests that could be affected by DNS)
-- **Excludes:** Server spans, internal operations, database queries that don't require DNS
+- **Client spans with DNS errors:** Returns `1`
+- **Client spans without DNS errors:** Returns `0`
+- **Non-client spans:** Returns `null` (excluded from calculation)
+
+**Alternative (if using `error.message` instead of `exception.message`):**
+```
+IF(EQUALS($span.kind,"client"), 
+   IF(OR(
+      CONTAINS($error.message,"lookup"),
+      CONTAINS($error.message,"no such host"),
+      CONTAINS($error.message,"name resolution")
+   ), 1, 0), 
+   null)
+```
+
+**Then create a second calculated field `dns_error_rate`:**
+
+**Formula:**
+```
+DIV(SUM($is_dns_error), COUNT(WHERE $is_dns_error != null))
+```
+
+**What this does:**
+- **Numerator:** Sum of `is_dns_error` (counts DNS errors on client spans)
+- **Denominator:** Count of all client spans (where `is_dns_error` is not null)
+- **Result:** Error rate between 0.0 (0%) and 1.0 (100%)
 
 **Step 2: Create Query for Alert**
 
@@ -549,6 +571,14 @@ DIV(
 WHERE service.name = frontend
   AND span.kind = "client"
 VISUALIZE dns_error_rate
+GROUP BY time(1m)
+```
+
+**Or calculate directly in query (simpler approach):**
+```
+WHERE service.name = frontend
+  AND span.kind = "client"
+VISUALIZE DIV(SUM(is_dns_error), COUNT())
 GROUP BY time(1m)
 ```
 
