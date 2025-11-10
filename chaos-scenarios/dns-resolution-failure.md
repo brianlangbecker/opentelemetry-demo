@@ -7,6 +7,7 @@
 ## 🎯 **What It Does**
 
 Stops CoreDNS (Kubernetes DNS service), causing:
+
 - DNS lookup failures → `no such host` errors
 - Service timeouts (~5 seconds - DNS timeout)
 - Cascading failures across all services
@@ -41,6 +42,7 @@ kubectl get pod -n kube-system -l k8s-app=kube-dns
 ```
 
 **Note:** If CoreDNS has a different name, find it first:
+
 ```bash
 kubectl get deployment --all-namespaces | grep -i dns
 ```
@@ -48,6 +50,7 @@ kubectl get deployment --all-namespaces | grep -i dns
 ### 3. Generate Load
 
 **Via Locust:**
+
 ```bash
 kubectl port-forward -n otel-demo svc/load-generator 8089:8089
 # Open http://localhost:8089
@@ -56,6 +59,7 @@ kubectl port-forward -n otel-demo svc/load-generator 8089:8089
 ```
 
 **Or manually browse:**
+
 - Try to view products: `http://localhost:8080`
 - Try to add items to cart
 - Try to checkout
@@ -87,6 +91,7 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected:**
+
 - Before: Mostly `OK`
 - After DNS stopped: Spike in `ERROR` status codes
 
@@ -103,6 +108,7 @@ TIME RANGE: Last 15 minutes
 ```
 
 **Expected error messages (format varies by language):**
+
 - `dial tcp: lookup cart: no such host`
 - `dial tcp: lookup productcatalog: i/o timeout`
 - `Get "http://currency:8080": dial tcp: lookup currency: Temporary failure in name resolution`
@@ -122,6 +128,7 @@ LIMIT 20
 ```
 
 **Click on a trace and look for:**
+
 - ❌ **No child spans** (never reached backend services)
 - ❌ Error message with DNS keywords
 - ❌ Duration ~5000ms (DNS timeout)
@@ -130,6 +137,7 @@ LIMIT 20
 **This is DNS failure** ✅
 
 **For comparison - Service Down (NOT DNS):**
+
 - ✅ DNS lookup succeeded (has IP address in error)
 - ❌ TCP connection refused
 - Error: `dial tcp 10.0.1.5:8080: connect: connection refused`
@@ -145,6 +153,7 @@ GROUP BY time(30s)
 ```
 
 **Expected:**
+
 - Latency band around 5000ms (DNS timeout)
 - All requests clustering at same timeout duration
 - Indicates systematic DNS issue, not random slowness
@@ -162,6 +171,7 @@ GROUP BY time(1m)
 ```
 
 **Expected:**
+
 - All backend service calls failing uniformly
 - DNS errors affect **all** service-to-service calls
 
@@ -170,6 +180,7 @@ GROUP BY time(1m)
 ## 🚨 **Alert Setup**
 
 **Query:**
+
 ```
 WHERE service.name = "frontend"
   AND error = true
@@ -179,11 +190,13 @@ GROUP BY time(1m)
 ```
 
 **Alert Conditions:**
+
 - **Trigger:** COUNT > 5 errors/minute
 - **Duration:** For at least 2 minutes
 - **Severity:** CRITICAL
 
 **Message:**
+
 ```
 🔴 DNS Resolution Failures
 
@@ -222,6 +235,7 @@ Action: Check CoreDNS health and DNS service availability
 - **Other runtimes**: Cache varies (immediate to several minutes)
 
 **If services still work after stopping DNS:**
+
 - Wait 2-5 minutes for cache to expire, OR
 - Restart pods to clear cache:
   ```bash
@@ -235,6 +249,7 @@ Action: Check CoreDNS health and DNS service availability
 ## 🎓 **Understanding the Flow**
 
 **Normal (DNS Working):**
+
 ```
 Frontend → DNS lookup: cart → 10.0.1.15 ✅
          → TCP connect: 10.0.1.15:8080 ✅
@@ -243,6 +258,7 @@ Frontend → DNS lookup: cart → 10.0.1.15 ✅
 ```
 
 **DNS Failure:**
+
 ```
 Frontend → DNS lookup: cart → TIMEOUT ❌ (5 seconds)
          → Error: "no such host"
@@ -251,6 +267,7 @@ Frontend → DNS lookup: cart → TIMEOUT ❌ (5 seconds)
 ```
 
 **Service Down (NOT DNS):**
+
 ```
 Frontend → DNS lookup: cart → 10.0.1.15 ✅
          → TCP connect: 10.0.1.15:8080 → REFUSED ❌

@@ -256,7 +256,7 @@ kubectl -n otel-demo port-forward svc/load-generator 8089:8089
 
 See documentation in the chaos-scenarios directory:
 
-- **[postgres-chaos-iops-demo.md](../chaos-scenarios/postgres-chaos-iops-demo.md)** - Cache pressure chaos demo
+- **[postgres-disk-iops-pressure.md](../chaos-scenarios/postgres-disk-iops-pressure.md)** (Option 4) - Cache pressure chaos demo (immediate impact)
 - **[postgres-disk-iops-pressure.md](../chaos-scenarios/postgres-disk-iops-pressure.md)** - Organic IOPS growth
 - **[postgres-seed-for-iops.md](../chaos-scenarios/postgres-seed-for-iops.md)** - Database pre-seeding
 

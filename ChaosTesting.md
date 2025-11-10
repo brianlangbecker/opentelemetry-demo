@@ -30,7 +30,7 @@ These scenarios are **ready to use** with complete guides and require **zero cod
 | ------------------------------------ | -------------------------------------------------------------------------------------- | -------------------------- | ------------------------------------------------------------------ | --------------- |
 | **Filesystem Growth / Disk Full**    | [filesystem-growth-crash-simple.md](chaos-scenarios/filesystem-growth-crash-simple.md) | Error flags + 50 users     | OpenSearch disk grows 900MB → 4-5GB, cluster yellow/red            | 2-3 hours       |
 | **Postgres IOPS Pressure (Organic)** | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md)       | High traffic: 200 users    | Database growth 10MB → 200MB+, disk I/O pressure, cache monitoring | 2-4 hours       |
-| **Postgres Cache Chaos Demo**        | [postgres-chaos-iops-demo.md](chaos-scenarios/postgres-chaos-iops-demo.md)             | Reduce cache: 128MB → 32MB | Immediate cache degradation, 98% → 70-85% hit ratio                | Immediate       |
+| **Postgres Cache Chaos Demo**        | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md) (Option 4) | Reduce cache: 128MB → 32MB | Immediate cache degradation, 98% → 70-85% hit ratio                | Immediate       |
 
 **Setup Guide:**
 
@@ -52,7 +52,7 @@ Comprehensive mapping of chaos testing scenarios to implementation status and ob
 | Scenario Type                         | Description                            | Method                                                                         | Observable Signals                                                                      | Status                             | Guide                                                                                                                                                                    |
 | ------------------------------------- | -------------------------------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- | ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | **Disk Full / I/O Latency**           | Fill disk with data                    | Postgres: 200 users / OpenSearch: error flags                                  | Disk usage metrics, I/O wait time, query latency, cache hit ratio drop                  | ✅ Available                       | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md), [filesystem-growth-crash-simple.md](chaos-scenarios/filesystem-growth-crash-simple.md) |
-| **Cache Degradation (Chaos)**         | Undersized cache causing IOPS pressure | Reduce PostgreSQL `shared_buffers` 128MB → 32MB                                | Cache hit ratio drop (98% → 70-85%), 10x disk reads, query latency                      | ✅ Available                       | [postgres-chaos-iops-demo.md](chaos-scenarios/postgres-chaos-iops-demo.md)                                                                                               |
+| **Cache Degradation (Chaos)**         | Undersized cache causing IOPS pressure | Reduce PostgreSQL `shared_buffers` 128MB → 32MB                                | Cache hit ratio drop (98% → 70-85%), 10x disk reads, query latency                      | ✅ Available                       | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md) (Option 4)                                                                                               |
 | **CPU / Memory Spikes or Saturation** | Drive CPU or memory to 100%            | `kafkaQueueProblems: 100-2000` (adjustable) + 10-50 users                      | CPU/memory metrics, OOM kill, pod restart, correlated process, MTTR                     | ✅ Available                       | [memory-tracking-spike-crash.md](chaos-scenarios/memory-tracking-spike-crash.md)                                                                                         |
 | **CPU Saturation (standalone)**       | Drive CPU to 100% independently        | `adHighCpu: on` flag                                                           | CPU utilization metrics, latency spikes, correlated process                             | ⚠️ Flag exists, needs guide        | Flag available in `demo.flagd.json`                                                                                                                                      |
 | **Memory Leak / Heap Pressure**       | Gradual memory allocation              | `kafkaQueueProblems: 200-300` + moderate load                                  | Heap trend, GC pauses, predictable failure                                              | ✅ Available                       | [memory-leak-gradual-checkout.md](chaos-scenarios/memory-leak-gradual-checkout.md)                                                                                       |
@@ -112,7 +112,7 @@ Comprehensive mapping of chaos testing scenarios to implementation status and ob
 | Log Storage Growth        | OpenSearch | Accumulation → disk full → cluster degradation    | [filesystem-growth-crash-simple.md](chaos-scenarios/filesystem-growth-crash-simple.md) |
 | Database Disk Growth      | Postgres   | Transaction volume → disk exhaustion              | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md)       |
 | IOPS Pressure (Organic)   | Postgres   | Sustained writes → I/O saturation → latency       | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md)       |
-| Cache Degradation (Chaos) | Postgres   | Undersized cache → excessive disk reads → latency | [postgres-chaos-iops-demo.md](chaos-scenarios/postgres-chaos-iops-demo.md)             |
+| Cache Degradation (Chaos) | Postgres   | Undersized cache → excessive disk reads → latency | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md) (Option 4)             |
 
 **Observability:**
 
@@ -192,7 +192,7 @@ Comprehensive mapping of chaos testing scenarios to implementation status and ob
 | Scenario                       | Database | Method                                         | Guide                                                                                          |
 | ------------------------------ | -------- | ---------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | Disk Growth & IOPS (Organic)   | Postgres | High traffic: 200 users → 200MB+ DB            | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md) ✅ **Tested** |
-| Cache Degradation (Chaos Demo) | Postgres | Reduce `shared_buffers` 128MB → 32MB           | [postgres-chaos-iops-demo.md](chaos-scenarios/postgres-chaos-iops-demo.md) ✅ **Tested**       |
+| Cache Degradation (Chaos Demo) | Postgres | Reduce `shared_buffers` 128MB → 32MB           | [postgres-disk-iops-pressure.md](chaos-scenarios/postgres-disk-iops-pressure.md) (Option 4) ✅ **Tested**       |
 | Pre-seeded IOPS Demo           | Postgres | Load 150K orders (~200MB) for instant pressure | [postgres-seed-for-iops.md](chaos-scenarios/postgres-seed-for-iops.md) ✅ **Tested**           |
 | Connection Exhaustion          | Postgres | High concurrency                               | ⚠️ Achievable with high user load (not yet documented)                                         |
 
@@ -242,7 +242,7 @@ These scenarios require additional implementation:
 
 **For Instant Impact (immediate):**
 
-- [Postgres Cache Chaos Demo](chaos-scenarios/postgres-chaos-iops-demo.md) - Immediate cache degradation (98% → 70-85% hit ratio)
+- [Postgres Cache Chaos Demo](chaos-scenarios/postgres-disk-iops-pressure.md) (Option 4) - Immediate cache degradation (98% → 70-85% hit ratio)
 - [JVM GC Thrashing](chaos-scenarios/jvm-gc-thrashing-ad-service.md) - Immediate cyclical degradation
 
 **For Rapid Testing (configurable timing):**

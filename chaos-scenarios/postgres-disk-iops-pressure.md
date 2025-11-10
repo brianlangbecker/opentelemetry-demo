@@ -59,18 +59,46 @@ See **[postgres-seed-for-iops.md](postgres-seed-for-iops.md)** for complete inst
 
 **Timeline:** 10 minutes setup vs. 2-4 hours wait ⏱️
 
-### Option 4: 🎭 Chaos Demo - Visible IOPS Degradation
+### Option 4: 🎭 Chaos Demo - Visible IOPS Degradation (Immediate Impact)
 
 **Show dramatic performance impact by undersizing the cache:**
 
-See **[postgres-chaos-iops-demo.md](postgres-chaos-iops-demo.md)** for complete guide to:
+**What this shows:**
+- Normal: 128 MB cache, 98-99% cache hit ratio ✅
+- Chaos: 32 MB cache, 70-85% cache hit ratio ❌
+- Result: 10x increase in disk reads, slower queries
 
-- Reduce PostgreSQL cache from 128 MB → 32 MB via Helm or kubectl
-- Show cache hit ratio drop from 98% → 70-85%
-- Demonstrate 10x increase in disk reads
-- Perfect for chaos engineering / SRE scenarios
+**Quick Setup (1 minute):**
 
-**Timeline:** Immediate impact - great for live demos! 🎬
+```bash
+# Reduce shared_buffers from 128MB → 32MB
+kubectl set env deployment/postgresql -n otel-demo POSTGRES_SHARED_BUFFERS=32MB
+
+# Restart to apply
+kubectl rollout restart deployment/postgresql -n otel-demo
+```
+
+**Expected Results in Honeycomb:**
+
+```
+DATASET: opentelemetry-demo
+WHERE postgresql.blks_hit EXISTS
+VISUALIZE
+  SUM(INCREASE(postgresql.blks_hit)) /
+  (SUM(INCREASE(postgresql.blks_hit)) + SUM(INCREASE(postgresql.blks_read))) * 100
+GROUP BY time(5m)
+```
+
+- **Before:** 98-99% cache hit ratio
+- **After:** 70-85% cache hit ratio (visible degradation)
+
+**Timeline:** Immediate impact - perfect for live demos! 🎬
+
+**Restore:**
+```bash
+kubectl set env deployment/postgresql -n otel-demo POSTGRES_SHARED_BUFFERS=128MB
+kubectl rollout restart deployment/postgresql -n otel-demo
+```
 
 ---
 

@@ -19,8 +19,7 @@ This directory contains ready-to-use chaos engineering and failure scenario guid
 | **Scenario**                  | **File**                                                               | **Target** | **Time to Failure** |
 | ----------------------------- | ---------------------------------------------------------------------- | ---------- | ------------------- |
 | Filesystem Growth / Disk Full | [filesystem-growth-crash-simple.md](filesystem-growth-crash-simple.md) | OpenSearch | 2-3 hours           |
-| PostgreSQL IOPS Pressure      | [postgres-disk-iops-pressure.md](postgres-disk-iops-pressure.md)       | PostgreSQL | 2-4 hours           |
-| PostgreSQL Cache Chaos Demo   | [postgres-chaos-iops-demo.md](postgres-chaos-iops-demo.md)             | PostgreSQL | Immediate           |
+| PostgreSQL IOPS Pressure      | [postgres-disk-iops-pressure.md](postgres-disk-iops-pressure.md)       | PostgreSQL | 2-4 hours (or immediate with cache reduction) |
 
 **Setup Guide:**
 
