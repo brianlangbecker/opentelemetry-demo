@@ -28,28 +28,45 @@ Kubernetes pod names typically follow these patterns:
 
 2. **Column Name:** `service_name_from_pod`
 
-3. **Formula (removes trailing hash/ordinal) - START HERE:**
+3. **Formula (extracts service name using capture group) - START HERE:**
    ```
-   REGEX_REPLACE($k8s.pod.name, "-[a-f0-9]{8,10}-[a-z0-9]{5}$", "")
+   COALESCE(
+     REG_VALUE($k8s.pod.name, `^(.+)-[a-f0-9]{8,10}-[a-z0-9]{5}$`),
+     REG_VALUE($k8s.pod.name, `^(.+)-[0-9]+$`),
+     $k8s.pod.name
+   )
    ```
    
    **What this does:**
-   - **Removes** Deployment pattern: `-<hash>-<random>` (e.g., `-77ccf457d8-jxl52`)
-   - Uses regex to match 8-10 character hex hash + 5 character random suffix
+   - **Extracts** the service name part (group 1) before the hash/random
+   - First regex: Matches Deployment pattern, extracts everything before `-hash-random`
+   - Second regex: Matches StatefulSet pattern, extracts everything before `-ordinal`
+   - Fallback: Returns original pod name if no match
    - **Result:** `aws-load-balancer-controller-77ccf457d8-jxl52` → `aws-load-balancer-controller` ✅
    
-   **⚠️ Important:** Use `REGEX_REPLACE`, NOT `REG_VALUE`:
-   - `REG_VALUE()` extracts the matched part (you'd get `-77ccf457d8-jxl52`) ❌
-   - `REGEX_REPLACE()` removes the matched part (you get `aws-load-balancer-controller`) ✅
+   **How it works:**
+   - `^(.+)-[a-f0-9]{8,10}-[a-z0-9]{5}$` - Captures service name (group 1) before hash-random
+   - `REG_VALUE()` extracts the first capture group (the service name)
+   - Uses `COALESCE()` to try patterns in order
 
-4. **If that doesn't work, try this simpler approach:**
+4. **Alternative: String Split Approach (no regex):**
    ```
-   REGEX_REPLACE($k8s.pod.name, "-[0-9]+$", "")
+   IF(
+     REG_MATCH($k8s.pod.name, `-[a-f0-9]{8,10}-[a-z0-9]{5}$`),
+     JOIN(SLICE(SPLIT($k8s.pod.name, "-"), 0, LENGTH(SPLIT($k8s.pod.name, "-")) - 2), "-"),
+     IF(
+       REG_MATCH($k8s.pod.name, `-[0-9]+$`),
+       JOIN(SLICE(SPLIT($k8s.pod.name, "-"), 0, LENGTH(SPLIT($k8s.pod.name, "-")) - 1), "-"),
+       $k8s.pod.name
+     )
+   )
    ```
    
    **What this does:**
-   - Removes trailing numbers (StatefulSet ordinals like `-0`, `-1`)
-   - Then manually handle Deployment pattern
+   - Splits pod name by `-`
+   - For Deployment: Removes last 2 parts (hash + random)
+   - For StatefulSet: Removes last 1 part (ordinal)
+   - Rejoins remaining parts
 
 5. **Most Robust Formula (handles all patterns):**
    ```
@@ -78,23 +95,25 @@ Kubernetes pod names typically follow these patterns:
    - Rejoins with `-`
    - **Note:** This assumes Deployment pattern. For StatefulSet, use `-1` instead of `-2`
 
-7. **Best Universal Formula (CORRECTED):**
+7. **Best Universal Formula (Using REG_VALUE with Capture Groups):**
    ```
-   IF(
-     REGEX_MATCH($k8s.pod.name, "-[a-f0-9]{8,10}-[a-z0-9]{5}$"),
-     REGEX_REPLACE($k8s.pod.name, "-[a-f0-9]{8,10}-[a-z0-9]{5}$", ""),
-     REGEX_REPLACE($k8s.pod.name, "-[0-9]+$", "")
+   COALESCE(
+     REG_VALUE($k8s.pod.name, `^(.+)-[a-f0-9]{8,10}-[a-z0-9]{5}$`),
+     REG_VALUE($k8s.pod.name, `^(.+)-[0-9]+$`),
+     $k8s.pod.name
    )
    ```
    
    **What this does:**
-   - Checks if pod name matches Deployment pattern (hash + random)
-   - If yes: **removes** `-<hash>-<random>` (keeps service name)
-   - If no: **removes** trailing numbers (StatefulSet ordinal)
+   - Uses capture groups `(.+)` to extract the service name part
+   - First pattern: Extracts everything before `-hash-random` (Deployment)
+   - Second pattern: Extracts everything before `-ordinal` (StatefulSet)
+   - Fallback: Returns original pod name if no match
    
-   **⚠️ Common Mistake:**
-   - ❌ `REG_VALUE()` - **extracts** the matched pattern (gets hash/random)
-   - ✅ `REGEX_REPLACE()` - **removes** the matched pattern (keeps service name)
+   **How REG_VALUE works:**
+   - `REG_VALUE(string, regex)` extracts the **first capture group** from the regex
+   - The `(.+)` part captures the service name
+   - The rest of the regex matches the suffix we want to ignore
 
 ### Step 2: Test the Formula
 
