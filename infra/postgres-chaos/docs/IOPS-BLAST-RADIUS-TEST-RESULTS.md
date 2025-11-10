@@ -456,7 +456,7 @@ From `infra/postgres-chaos/postgres-chaos-scenarios.sh`:
 Additional IOPS tests:
 
 - **postgres-disk-iops-pressure.md** - Organic database growth via high user load
-- **postgres-chaos-iops-demo.md** - This test (cache reduction)
+- **postgres-disk-iops-pressure.md** (Option 4) - This test (cache reduction)
 - **postgres-seed-for-iops.md** - Pre-seed database for immediate IOPS pressure
 
 ---
