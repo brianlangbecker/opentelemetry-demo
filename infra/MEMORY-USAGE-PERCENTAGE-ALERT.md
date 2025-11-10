@@ -12,32 +12,48 @@
 
 2. **Column Name:** `memory_usage_percent`
 
-3. **Formula:**
+3. **Formula (if memory.limit is available):**
    ```
    IF(
      $k8s.pod.memory.limit > 0,
-     ($k8s.pod.memory.working_set / $k8s.pod.memory.limit) * 100,
+     ($k8s.pod.memory.usage / $k8s.pod.memory.limit) * 100,
      null
    )
    ```
 
    **What this does:**
-   - Calculates: `(working_set / limit) * 100` for each row
+   - Calculates: `(usage / limit) * 100` for each row
    - Only calculates if limit exists and > 0
    - Returns `null` if limit not available
    - **Result:** Memory usage as percentage (0-100%)
 
-4. **Click "Create"**
+4. **If memory.limit is NOT available, use utilization metric:**
+   
+   If `k8s.pod.memory_limit_utilization` exists (already a percentage 0.0-1.0):
+   ```
+   $k8s.pod.memory_limit_utilization * 100
+   ```
+   
+   **Or check if it exists first:**
+   ```
+   IF(
+     $k8s.pod.memory_limit_utilization EXISTS,
+     $k8s.pod.memory_limit_utilization * 100,
+     null
+   )
+   ```
 
-**Alternative (with explicit null checks):**
+5. **Click "Create"**
+
+**Alternative (with explicit null checks for usage/limit):**
 ```
 IF(
   AND(
-    $k8s.pod.memory.working_set EXISTS,
+    $k8s.pod.memory.usage EXISTS,
     $k8s.pod.memory.limit EXISTS,
     $k8s.pod.memory.limit > 0
   ),
-  ($k8s.pod.memory.working_set / $k8s.pod.memory.limit) * 100,
+  ($k8s.pod.memory.usage / $k8s.pod.memory.limit) * 100,
   null
 )
 ```
@@ -60,7 +76,7 @@ GROUP BY k8s.pod.name, time(1m)
 WHERE memory_usage_percent EXISTS
 VISUALIZE
   MAX(memory_usage_percent) AS "Memory Usage %",
-  MAX(k8s.pod.memory.working_set) AS "Memory Used (bytes)",
+  MAX(k8s.pod.memory.usage) AS "Memory Used (bytes)",
   MAX(k8s.pod.memory.limit) AS "Memory Limit (bytes)"
 GROUP BY k8s.pod.name, time(1m)
 ORDER BY "Memory Usage %" DESC
@@ -94,8 +110,8 @@ GROUP BY k8s.pod.name, time(1m)
 Pod: {{k8s.pod.name}}
 Service: {{service_name_from_pod}}
 Memory Usage: {{MAX(memory_usage_percent)}}%
-Memory Used: {{MAX(k8s.pod.memory.working_set)}} bytes
-Memory Limit: {{MAX(k8s.pod.memory.limit)}} bytes
+Memory Used: {{MAX(k8s.pod.memory.usage)}} bytes
+Memory Limit: {{MAX(k8s.pod.memory.limit)}} bytes (if available)
 
 Action: 
 - Check for memory leaks
@@ -110,9 +126,10 @@ Action:
 
 Kubernetes pod metrics include:
 
-- `k8s.pod.memory.working_set` - Current memory usage (bytes)
-- `k8s.pod.memory.limit` - Memory limit (bytes) - may not always be present
-- `k8s.pod.memory_limit_utilization` - Memory usage as percentage (0.0 to 1.0) - **may already be available**
+- `k8s.pod.memory.usage` - Current memory usage (bytes) ✅
+- `k8s.pod.memory.working_set` - Working set memory (bytes) - alternative to usage
+- `k8s.pod.memory.limit` - Memory limit (bytes) - **may not always be present**
+- `k8s.pod.memory_limit_utilization` - Memory usage as percentage (0.0 to 1.0) - **may already be available** ✅
 
 ---
 
@@ -153,28 +170,30 @@ If you prefer not to create a derived column:
 ### Query with Calculation
 
 ```
-WHERE k8s.pod.memory.working_set EXISTS
+WHERE k8s.pod.memory.usage EXISTS
   AND k8s.pod.memory.limit EXISTS
   AND k8s.pod.memory.limit > 0
-VISUALIZE (MAX(k8s.pod.memory.working_set) / MAX(k8s.pod.memory.limit)) * 100 AS "Memory Usage %"
+VISUALIZE (MAX(k8s.pod.memory.usage) / MAX(k8s.pod.memory.limit)) * 100 AS "Memory Usage %"
 GROUP BY k8s.pod.name, time(1m)
 ```
 
 ### Alert Query
 
 ```
-WHERE k8s.pod.memory.working_set EXISTS
+WHERE k8s.pod.memory.usage EXISTS
   AND k8s.pod.memory.limit EXISTS
   AND k8s.pod.memory.limit > 0
-  AND (MAX(k8s.pod.memory.working_set) / MAX(k8s.pod.memory.limit)) * 100 > 90
-VISUALIZE (MAX(k8s.pod.memory.working_set) / MAX(k8s.pod.memory.limit)) * 100
+  AND (MAX(k8s.pod.memory.usage) / MAX(k8s.pod.memory.limit)) * 100 > 90
+VISUALIZE (MAX(k8s.pod.memory.usage) / MAX(k8s.pod.memory.limit)) * 100
 GROUP BY k8s.pod.name, time(1m)
 ```
 
 **Alert Configuration:**
-- **Trigger:** `(MAX(k8s.pod.memory.working_set) / MAX(k8s.pod.memory.limit)) * 100 > 90`
+- **Trigger:** `(MAX(k8s.pod.memory.usage) / MAX(k8s.pod.memory.limit)) * 100 > 90`
 - **Frequency:** Every 1 minute
 - **Severity:** WARNING
+
+**Note:** If `k8s.pod.memory.limit` is not available, use `k8s.pod.memory_limit_utilization` instead (see Alternative section above).
 
 ---
 
@@ -242,7 +261,13 @@ If `k8s.pod.memory.limit` is not present:
 
 1. **Verify metrics are flowing:**
    ```
-   WHERE k8s.pod.memory.working_set EXISTS
+   WHERE k8s.pod.memory.usage EXISTS
+   VISUALIZE COUNT
+   ```
+   
+   **Or check utilization metric:**
+   ```
+   WHERE k8s.pod.memory_limit_utilization EXISTS
    VISUALIZE COUNT
    ```
 
@@ -258,29 +283,48 @@ If `k8s.pod.memory.limit` is not present:
 
 ### Derived Column Returns Null
 
-1. **Check if both fields exist:**
+1. **Check if memory.usage exists:**
    ```
-   WHERE k8s.pod.memory.working_set EXISTS
+   WHERE k8s.pod.memory.usage EXISTS
+   VISUALIZE COUNT
+   ```
+
+2. **Check if memory_limit_utilization exists (easier option):**
+   ```
+   WHERE k8s.pod.memory_limit_utilization EXISTS
+   VISUALIZE COUNT
+   ```
+
+3. **Check if both usage and limit exist:**
+   ```
+   WHERE k8s.pod.memory.usage EXISTS
      AND k8s.pod.memory.limit EXISTS
    VISUALIZE COUNT
    ```
 
-2. **Check if limit is > 0:**
+4. **Check if limit is > 0:**
    ```
    WHERE k8s.pod.memory.limit > 0
    VISUALIZE COUNT
    ```
 
-3. **Test the formula with sample data:**
+5. **Test the formula with sample data:**
    ```
-   WHERE k8s.pod.memory.working_set EXISTS
-     AND k8s.pod.memory.limit EXISTS
+   WHERE k8s.pod.memory.usage EXISTS
    VISUALIZE
-     k8s.pod.memory.working_set,
+     k8s.pod.memory.usage,
      k8s.pod.memory.limit,
+     k8s.pod.memory_limit_utilization,
      memory_usage_percent
    LIMIT 20
    ```
+
+**If limit is not available, use the utilization metric directly:**
+```
+WHERE k8s.pod.memory_limit_utilization EXISTS
+VISUALIZE MAX(k8s.pod.memory_limit_utilization) * 100
+GROUP BY k8s.pod.name, time(1m)
+```
 
 ---
 
@@ -289,13 +333,14 @@ If `k8s.pod.memory.limit` is not present:
 ```
 WHERE k8s.pod.name EXISTS
 VISUALIZE
-  MAX(k8s.pod.memory.working_set) AS "Memory Used (bytes)",
+  MAX(k8s.pod.memory.usage) AS "Memory Used (bytes)",
   MAX(k8s.pod.memory.limit) AS "Memory Limit (bytes)",
   COALESCE(
     MAX(memory_usage_percent),
+    MAX(k8s.pod.memory_limit_utilization) * 100,
     IF(
       MAX(k8s.pod.memory.limit) > 0,
-      (MAX(k8s.pod.memory.working_set) / MAX(k8s.pod.memory.limit)) * 100,
+      (MAX(k8s.pod.memory.usage) / MAX(k8s.pod.memory.limit)) * 100,
       null
     )
   ) AS "Memory Usage %"
