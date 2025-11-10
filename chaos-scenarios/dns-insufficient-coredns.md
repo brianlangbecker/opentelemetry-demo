@@ -528,44 +528,42 @@ In Honeycomb, create a calculated field named `is_dns_error`:
 
 **Formula:**
 ```
-IF(EQUALS($span.kind,"client"), 
-   IF(OR(
-      CONTAINS($exception.message,"lookup"),
-      CONTAINS($exception.message,"no such host"),
-      CONTAINS($exception.message,"name resolution")
-   ), 1, 0), 
-   null)
+IF(OR(
+   CONTAINS($exception.message,"lookup"),
+   CONTAINS($exception.message,"no such host"),
+   CONTAINS($exception.message,"name resolution")
+), 1, 0)
 ```
 
 **What this does:**
-- **Client spans with DNS errors:** Returns `1`
-- **Client spans without DNS errors:** Returns `0`
-- **Non-client spans:** Returns `null` (excluded from calculation)
+- **Spans with DNS errors:** Returns `1`
+- **Spans without DNS errors:** Returns `0`
+- **Note:** Filter to `span.kind = "client"` in your query to only count outbound calls
 
 **Alternative (if using `error.message` instead of `exception.message`):**
 ```
-IF(EQUALS($span.kind,"client"), 
-   IF(OR(
-      CONTAINS($error.message,"lookup"),
-      CONTAINS($error.message,"no such host"),
-      CONTAINS($error.message,"name resolution")
-   ), 1, 0), 
-   null)
+IF(OR(
+   CONTAINS($error.message,"lookup"),
+   CONTAINS($error.message,"no such host"),
+   CONTAINS($error.message,"name resolution")
+), 1, 0)
 ```
 
 **Then create a second calculated field `dns_error_rate`:**
 
 **Formula:**
 ```
-DIV(SUM($is_dns_error), COUNT(WHERE $is_dns_error != null))
+DIV(SUM($is_dns_error), COUNT())
 ```
 
 **What this does:**
-- **Numerator:** Sum of `is_dns_error` (counts DNS errors on client spans)
-- **Denominator:** Count of all client spans (where `is_dns_error` is not null)
+- **Numerator:** Sum of `is_dns_error` (counts DNS errors)
+- **Denominator:** Total count (filter to client spans in query)
 - **Result:** Error rate between 0.0 (0%) and 1.0 (100%)
 
 **Step 2: Create Query for Alert**
+
+**Important:** Filter to `span.kind = "client"` in the WHERE clause to only count outbound service calls:
 
 ```
 WHERE service.name = frontend
@@ -581,6 +579,8 @@ WHERE service.name = frontend
 VISUALIZE DIV(SUM(is_dns_error), COUNT())
 GROUP BY time(1m)
 ```
+
+**Why filter in query:** Since `span.kind` isn't available in the exception context, we filter to client spans in the query itself. This ensures we only count outbound service calls that could be affected by DNS issues.
 
 **Step 3: Create Trigger**
 
