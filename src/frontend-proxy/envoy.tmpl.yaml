@@ -64,31 +64,6 @@ static_resources:
                         - match: { prefix: "/" } # Default/catch-all route - keep last since prefix:"/" matches everything
                           route: { cluster: frontend }
                 http_filters:
-                  - name: envoy.filters.http.local_ratelimit
-                    typed_config:
-                      "@type": type.googleapis.com/envoy.extensions.filters.http.local_ratelimit.v3.LocalRateLimit
-                      stat_prefix: http_local_rate_limiter
-                      token_bucket:
-                        max_tokens: ${ENVOY_RATE_LIMIT_MAX_TOKENS}
-                        tokens_per_fill: ${ENVOY_RATE_LIMIT_TOKENS_PER_FILL}
-                        fill_interval: 60s  # requests per minute
-                      filter_enabled:
-                        runtime_key: local_rate_limit_enabled
-                        default_value:
-                          numerator: 100
-                          denominator: HUNDRED
-                      filter_enforced:
-                        runtime_key: local_rate_limit_enforced
-                        default_value:
-                          numerator: 100
-                          denominator: HUNDRED
-                      response_headers_to_add:
-                        - append: false
-                          header:
-                            key: x-local-rate-limit
-                            value: 'true'
-                      status:
-                        code: 429
                   - name: envoy.filters.http.fault
                     typed_config:
                       "@type": type.googleapis.com/envoy.extensions.filters.http.fault.v3.HTTPFault
