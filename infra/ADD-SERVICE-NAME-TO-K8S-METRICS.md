@@ -10,39 +10,98 @@
 
 ## Option 1: Honeycomb Derived Column (Recommended) ⭐
 
-**Simplest approach** - Create a calculated field in Honeycomb that extracts `service.name` from the pod label.
+**Extract service name from pod name** - Create a calculated field that parses the service name from the pod name pattern.
 
-### Step 1: Verify Pod Label is Available
+### Pod Name Patterns
 
-First, check if the pod label is being extracted by the k8sattributes processor:
+Kubernetes pod names typically follow these patterns:
+- **Deployment:** `service-name-<hash>-<random>` → `service-name`
+  - Example: `aws-load-balancer-controller-77ccf457d8-jxl52` → `aws-load-balancer-controller`
+- **StatefulSet:** `service-name-<ordinal>` → `service-name`
+  - Example: `postgresql-0` → `postgresql`
+- **DaemonSet:** `service-name-<hash>` → `service-name`
+  - Example: `kube-proxy-abc123` → `kube-proxy`
 
-**Query:**
-```
-WHERE k8s.pod.labels.app.kubernetes.io/name EXISTS
-VISUALIZE COUNT
-BREAKDOWN k8s.pod.labels.app.kubernetes.io/name
-LIMIT 20
-```
-
-**If the label isn't available**, you need to add label extraction to the k8sattributes processor (see Option 2, Step 1).
-
-### Step 2: Create Derived Column in Honeycomb
+### Step 1: Create Derived Column
 
 1. **Go to Honeycomb UI** → Your dataset → **Columns** → **Create Column**
 
 2. **Column Name:** `service_name_from_pod`
 
-3. **Formula:**
+3. **Formula (removes trailing hash/ordinal):**
    ```
-   $k8s.pod.labels.app.kubernetes.io/name
+   REGEX_REPLACE($k8s.pod.name, "-[a-f0-9]{8,10}-[a-z0-9]{5}$", "")
+   ```
+   
+   **What this does:**
+   - Removes Deployment pattern: `-<hash>-<random>` (e.g., `-77ccf457d8-jxl52`)
+   - Uses regex to match 8-10 character hex hash + 5 character random suffix
+
+4. **If that doesn't work, try this simpler approach:**
+   ```
+   REGEX_REPLACE($k8s.pod.name, "-[0-9]+$", "")
+   ```
+   
+   **What this does:**
+   - Removes trailing numbers (StatefulSet ordinals like `-0`, `-1`)
+   - Then manually handle Deployment pattern
+
+5. **Most Robust Formula (handles all patterns):**
+   ```
+   IF(
+     REGEX_MATCH($k8s.pod.name, "-[a-f0-9]{8,10}-[a-z0-9]{5}$"),
+     REGEX_REPLACE($k8s.pod.name, "-[a-f0-9]{8-10}-[a-z0-9]{5}$", ""),
+     IF(
+       REGEX_MATCH($k8s.pod.name, "-[0-9]+$"),
+       REGEX_REPLACE($k8s.pod.name, "-[0-9]+$", ""),
+       REGEX_REPLACE($k8s.pod.name, "-[a-f0-9]{6,}$", "")
+     )
+   )
    ```
 
-   **Alternative (if label format is different):**
+6. **Simplest Approach (split and rejoin):**
    ```
-   $k8s.pod.labels["app.kubernetes.io/name"]
+   JOIN(
+     SLICE(SPLIT($k8s.pod.name, "-"), 0, LENGTH(SPLIT($k8s.pod.name, "-")) - 2),
+     "-"
+   )
    ```
+   
+   **What this does:**
+   - Splits pod name by `-`
+   - Takes all parts except last 2 (removes hash + random)
+   - Rejoins with `-`
+   - **Note:** This assumes Deployment pattern. For StatefulSet, use `-1` instead of `-2`
 
-4. **Click "Create"**
+7. **Best Universal Formula:**
+   ```
+   IF(
+     REGEX_MATCH($k8s.pod.name, "^[a-z-]+-[a-f0-9]{8,10}-[a-z0-9]{5}$"),
+     REGEX_REPLACE($k8s.pod.name, "-[a-f0-9]{8,10}-[a-z0-9]{5}$", ""),
+     REGEX_REPLACE($k8s.pod.name, "-[0-9]+$", "")
+   )
+   ```
+   
+   **What this does:**
+   - Checks if pod name matches Deployment pattern (hash + random)
+   - If yes: removes `-<hash>-<random>`
+   - If no: removes trailing numbers (StatefulSet ordinal)
+
+### Step 2: Test the Formula
+
+Test with your actual pod names:
+
+```
+WHERE k8s.pod.name EXISTS
+VISUALIZE k8s.pod.name, service_name_from_pod
+BREAKDOWN k8s.pod.name
+LIMIT 20
+```
+
+**Verify the extraction:**
+- `aws-load-balancer-controller-77ccf457d8-jxl52` → `aws-load-balancer-controller` ✅
+- `postgresql-0` → `postgresql` ✅
+- `checkout-bc8884986-59rzz` → `checkout` ✅
 
 ### Step 3: Use in Queries
 
@@ -54,7 +113,7 @@ VISUALIZE MAX(k8s.pod.memory.working_set)
 GROUP BY k8s.pod.name, time(1m)
 ```
 
-### Step 4: (Optional) Create Alias for service.name
+### Step 4: (Optional) Create Unified service.name Column
 
 If you want to use `service.name` in queries (for consistency with application traces), create a second derived column:
 
@@ -77,6 +136,7 @@ If you want to use `service.name` in queries (for consistency with application t
 
 **Advantages:**
 - ✅ No collector configuration changes needed
+- ✅ Works with any pod name pattern
 - ✅ Works immediately after creating the column
 - ✅ Easy to modify or remove
 - ✅ Can combine with existing `service.name` from app instrumentation
