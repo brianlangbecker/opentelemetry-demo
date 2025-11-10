@@ -524,7 +524,7 @@ kubectl scale deployment coredns -n kube-system --replicas=2
 
 **Step 1: Create Calculated Field (Derived Column)**
 
-In Honeycomb, create a calculated field named `is_dns_eligible`:
+In Honeycomb, create a calculated field named `is_dns_error`:
 
 **Formula:**
 ```
@@ -536,54 +536,49 @@ IF(AND(
       EXISTS($http.url),
       EXISTS($url.full)
    )
-), 1, null)
-```
-
-**What this does:**
-- **HTTP/gRPC client spans:** Returns `1` (these require DNS resolution)
-- **Other spans:** Returns `null` (excluded - database, Kafka, internal ops don't use DNS)
-
-**Then create a second calculated field `is_dns_error`:**
-
-**Formula:**
-```
-IF(AND(
-   $is_dns_eligible = 1,
-   OR(
+), 
+   IF(OR(
       CONTAINS($exception.message,"lookup"),
       CONTAINS($exception.message,"no such host"),
       CONTAINS($exception.message,"name resolution")
-   )
-), 1, IF($is_dns_eligible = 1, 0, null))
+   ), 1, 0),
+   null)
 ```
 
 **What this does:**
-- **DNS-eligible spans with DNS errors:** Returns `1`
-- **DNS-eligible spans without DNS errors:** Returns `0`
-- **Non-DNS-eligible spans:** Returns `null` (excluded)
+- **HTTP/gRPC client spans with DNS errors:** Returns `1`
+- **HTTP/gRPC client spans without DNS errors:** Returns `0`
+- **Other spans (database, Kafka, internal ops):** Returns `null` (excluded)
 
 **Alternative (if using `error.message` instead of `exception.message`):**
 ```
 IF(AND(
-   $is_dns_eligible = 1,
+   EQUALS($span.kind,"client"),
    OR(
+      EXISTS($http.method),
+      EXISTS($rpc.method),
+      EXISTS($http.url),
+      EXISTS($url.full)
+   )
+), 
+   IF(OR(
       CONTAINS($error.message,"lookup"),
       CONTAINS($error.message,"no such host"),
       CONTAINS($error.message,"name resolution")
-   )
-), 1, IF($is_dns_eligible = 1, 0, null))
+   ), 1, 0),
+   null)
 ```
 
-**Then create a third calculated field `dns_error_rate`:**
+**Then create a second calculated field `dns_error_rate`:**
 
 **Formula:**
 ```
-DIV(SUM($is_dns_error), COUNT(WHERE $is_dns_eligible = 1))
+DIV(SUM($is_dns_error), COUNT(WHERE $is_dns_error != null))
 ```
 
 **What this does:**
 - **Numerator:** Sum of `is_dns_error` (counts DNS errors on eligible spans)
-- **Denominator:** Count of all DNS-eligible spans (HTTP/gRPC client calls)
+- **Denominator:** Count of all DNS-eligible spans (where `is_dns_error` is not null)
 - **Result:** Error rate between 0.0 (0%) and 1.0 (100%)
 
 **Step 2: Create Query for Alert**
@@ -606,10 +601,10 @@ GROUP BY time(1m)
 ```
 
 **Why this approach:**
-- `is_dns_eligible` filters to only HTTP/gRPC client spans (excludes database, Kafka, internal ops)
-- `is_dns_error` marks DNS errors on eligible spans only
+- `is_dns_error` filters to only HTTP/gRPC client spans AND marks DNS errors
+- Returns `1` for DNS errors, `0` for no DNS errors, `null` for non-DNS spans
 - Rate calculation only includes spans that could potentially have DNS issues
-- No need to filter in WHERE clause - the calculated fields handle it
+- No need to filter in WHERE clause - the calculated field handles it
 
 **Step 3: Create Trigger**
 
