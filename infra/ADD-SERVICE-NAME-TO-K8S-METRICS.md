@@ -2,11 +2,88 @@
 
 **Problem:** Kubernetes pod metrics (from `kubeletstats` and `k8s_cluster` receivers) don't have `service.name` by default, making it hard to filter and group by service.
 
-**Solution:** Extract the `app.kubernetes.io/name` pod label and map it to `service.name` using the k8sattributes processor and resource processor.
+**Solution Options:**
+1. **Honeycomb Derived Column (Recommended)** - Extract from pod label in Honeycomb UI
+2. **OpenTelemetry Collector** - Map in collector configuration (more complex)
 
 ---
 
-## Configuration
+## Option 1: Honeycomb Derived Column (Recommended) ⭐
+
+**Simplest approach** - Create a calculated field in Honeycomb that extracts `service.name` from the pod label.
+
+### Step 1: Verify Pod Label is Available
+
+First, check if the pod label is being extracted by the k8sattributes processor:
+
+**Query:**
+```
+WHERE k8s.pod.labels.app.kubernetes.io/name EXISTS
+VISUALIZE COUNT
+BREAKDOWN k8s.pod.labels.app.kubernetes.io/name
+LIMIT 20
+```
+
+**If the label isn't available**, you need to add label extraction to the k8sattributes processor (see Option 2, Step 1).
+
+### Step 2: Create Derived Column in Honeycomb
+
+1. **Go to Honeycomb UI** → Your dataset → **Columns** → **Create Column**
+
+2. **Column Name:** `service_name_from_pod`
+
+3. **Formula:**
+   ```
+   $k8s.pod.labels.app.kubernetes.io/name
+   ```
+
+   **Alternative (if label format is different):**
+   ```
+   $k8s.pod.labels["app.kubernetes.io/name"]
+   ```
+
+4. **Click "Create"**
+
+### Step 3: Use in Queries
+
+Now you can filter and group by the derived column:
+
+```
+WHERE service_name_from_pod = "aws-load-balancer-controller"
+VISUALIZE MAX(k8s.pod.memory.working_set)
+GROUP BY k8s.pod.name, time(1m)
+```
+
+### Step 4: (Optional) Create Alias for service.name
+
+If you want to use `service.name` in queries (for consistency with application traces), create a second derived column:
+
+1. **Column Name:** `service.name`
+
+2. **Formula:**
+   ```
+   COALESCE($service.name, $service_name_from_pod)
+   ```
+
+   **What this does:**
+   - Uses existing `service.name` if present (from application instrumentation)
+   - Falls back to `service_name_from_pod` if not present (for K8s metrics)
+
+3. **Now you can query:**
+   ```
+   WHERE service.name = "aws-load-balancer-controller"
+   VISUALIZE MAX(k8s.pod.memory.working_set)
+   ```
+
+**Advantages:**
+- ✅ No collector configuration changes needed
+- ✅ Works immediately after creating the column
+- ✅ Easy to modify or remove
+- ✅ Can combine with existing `service.name` from app instrumentation
+
+---
+
+## Option 2: OpenTelemetry Collector Configuration
 
 ### Step 1: Extract Pod Label
 
@@ -104,6 +181,23 @@ VISUALIZE COUNT
 BREAKDOWN service.name
 GROUP BY time(5m)
 ```
+
+---
+
+## Troubleshooting: Label Not Available
+
+If `k8s.pod.labels.app.kubernetes.io/name` doesn't exist, the k8sattributes processor needs to extract it. Add this to your collector config:
+
+```yaml
+k8sattributes:
+  extract:
+    labels:
+      - tag_name: app.kubernetes.io/name
+        key: app.kubernetes.io/name
+        from: pod
+```
+
+Then upgrade your Helm release and the label will be available for the derived column.
 
 ---
 
