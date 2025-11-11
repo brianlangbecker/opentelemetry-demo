@@ -508,13 +508,18 @@ func listProductsFromDB(ctx context.Context) ([]*pb.Product, error) {
 
 	span.SetAttributes(attribute.String("db.statement", query))
 
+	// Add 30-second timeout for statement execution
+	queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer queryCancel()
+
 	// Execute query with explicit span for visibility
-	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	queryCtx, querySpan := tracer.Start(queryCtx, "db.query.execute")
 	querySpan.SetAttributes(
 		attribute.String("db.operation", "SELECT"),
 		attribute.String("db.sql.table", "products"),
+		attribute.String("db.statement.timeout", "30s"),
 	)
-	rows, err := db.QueryContext(ctx, query)
+	rows, err := db.QueryContext(queryCtx, query)
 	if err != nil {
 		querySpan.RecordError(err)
 		querySpan.SetStatus(otelcodes.Error, "Query execution failed")
@@ -626,13 +631,18 @@ func getProductFromDB(ctx context.Context, id string) (*pb.Product, error) {
 
 	span.SetAttributes(attribute.String("db.statement", query))
 
+	// Add 30-second timeout for statement execution
+	queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer queryCancel()
+
 	// Execute query with explicit span for visibility
-	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	queryCtx, querySpan := tracer.Start(queryCtx, "db.query.execute")
 	querySpan.SetAttributes(
 		attribute.String("db.operation", "SELECT"),
 		attribute.String("db.sql.table", "products"),
+		attribute.String("db.statement.timeout", "30s"),
 	)
-	row := db.QueryRowContext(ctx, query, id)
+	row := db.QueryRowContext(queryCtx, query, id)
 	querySpan.SetStatus(otelcodes.Ok, "Query executed successfully")
 	querySpan.End()
 
@@ -723,13 +733,18 @@ func searchProductsFromDB(ctx context.Context, query string) ([]*pb.Product, err
 		attribute.String("db.query.parameter", searchPattern),
 	)
 
+	// Add 30-second timeout for statement execution
+	queryCtx, queryCancel := context.WithTimeout(ctx, 30*time.Second)
+	defer queryCancel()
+
 	// Execute query with explicit span for visibility
-	ctx, querySpan := tracer.Start(ctx, "db.query.execute")
+	queryCtx, querySpan := tracer.Start(queryCtx, "db.query.execute")
 	querySpan.SetAttributes(
 		attribute.String("db.operation", "SELECT"),
 		attribute.String("db.sql.table", "products"),
+		attribute.String("db.statement.timeout", "30s"),
 	)
-	rows, err := db.QueryContext(ctx, sqlQuery, searchPattern)
+	rows, err := db.QueryContext(queryCtx, sqlQuery, searchPattern)
 	if err != nil {
 		querySpan.RecordError(err)
 		querySpan.SetStatus(otelcodes.Error, "Query execution failed")

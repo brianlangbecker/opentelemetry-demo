@@ -30,6 +30,13 @@ components:
     #   - name: POSTGRES_SHARED_BUFFERS
     #     value: "32MB"  # Default: 128MB. Use 32MB or 64MB for chaos demo
 
+  checkout:
+    resources:
+      limits:
+        memory: 100Mi
+      requests:
+        memory: 50Mi
+
 opentelemetry-collector:
   clusterRole:
     create: true
@@ -144,6 +151,9 @@ opentelemetry-collector:
             group: ""
             exclude_watch_type:
               - DELETED
+          - name: nodes
+            mode: watch
+            group: ""
           - name: events
             mode: watch
             group: events.k8s.io
@@ -207,7 +217,13 @@ opentelemetry-collector:
               - set(attributes["k8s.pod.name"], body["object"]["metadata"]["name"]) where body["object"]["kind"] == "Pod"
               - set(attributes["k8s.namespace.name"], body["object"]["metadata"]["namespace"]) where body["object"]["kind"] == "Pod"
               - set(attributes["k8s.pod.phase"], body["object"]["status"]["phase"]) where body["object"]["kind"] == "Pod"
-              
+
+              # Extract Node object fields (for node crashes and status changes)
+              - set(attributes["k8s.node.name"], body["object"]["metadata"]["name"]) where body["object"]["kind"] == "Node"
+              - set(attributes["k8s.node.condition.ready"], body["object"]["status"]["conditions"][0]["status"]) where body["object"]["kind"] == "Node" and body["object"]["status"]["conditions"][0]["type"] == "Ready"
+              - set(attributes["k8s.node.condition.memory_pressure"], body["object"]["status"]["conditions"][1]["status"]) where body["object"]["kind"] == "Node" and body["object"]["status"]["conditions"][1]["type"] == "MemoryPressure"
+              - set(attributes["k8s.node.condition.disk_pressure"], body["object"]["status"]["conditions"][2]["status"]) where body["object"]["kind"] == "Node" and body["object"]["status"]["conditions"][2]["type"] == "DiskPressure"
+
               # Extract container termination info (OOMKilled, Error, etc.)
               - set(attributes["k8s.container.name"], body["object"]["status"]["containerStatuses"][0]["name"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"] != nil
               - set(attributes["k8s.container.restart_count"], body["object"]["status"]["containerStatuses"][0]["restartCount"]) where body["object"]["kind"] == "Pod" and body["object"]["status"]["containerStatuses"] != nil

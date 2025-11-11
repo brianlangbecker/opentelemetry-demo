@@ -26,12 +26,8 @@ WORKDIR /usr/src/app/
 COPY --from=builder /usr/src/app/product-catalog ./
 COPY --from=builder /usr/src/app/products/ ./products/
 
-# Copy wrapper script
-COPY src/product-catalog/docker-entrypoint.sh /docker-entrypoint.sh
-RUN chmod +x /docker-entrypoint.sh
-
 # Add ca-certificates for HTTPS connections (needed for OTLP gRPC)
 RUN apk add --no-cache ca-certificates
 
 EXPOSE ${PRODUCT_CATALOG_PORT}
-ENTRYPOINT [ "/docker-entrypoint.sh" ]
+ENTRYPOINT [ "/usr/src/app/product-catalog" ]
