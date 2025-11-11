@@ -64,6 +64,7 @@ See **[postgres-seed-for-iops.md](postgres-seed-for-iops.md)** for complete inst
 **Show dramatic performance impact by undersizing the cache:**
 
 **What this shows:**
+
 - Normal: 128 MB cache, 98-99% cache hit ratio ✅
 - Chaos: 32 MB cache, 70-85% cache hit ratio ❌
 - Result: 10x increase in disk reads, slower queries
@@ -95,6 +96,7 @@ GROUP BY time(5m)
 **Timeline:** Immediate impact - perfect for live demos! 🎬
 
 **Restore:**
+
 ```bash
 kubectl set env deployment/postgresql -n otel-demo POSTGRES_SHARED_BUFFERS=128MB
 kubectl rollout restart deployment/postgresql -n otel-demo
