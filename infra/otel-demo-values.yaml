@@ -37,6 +37,16 @@ components:
       requests:
         memory: 50Mi
 
+  # frontend-proxy:
+  #   Rate limiting is ENABLED by default (500 req/min = 8.3 req/sec)
+  #   Config: 500 max_tokens, 500 tokens_per_fill, 60s fill_interval
+  #
+  #   To modify rate limits:
+  #   1. Edit envoy-config ConfigMap: kubectl edit configmap envoy-config -n otel-demo
+  #   2. Restart frontend-proxy: kubectl rollout restart deployment/frontend-proxy -n otel-demo
+  #
+  #   See infra/FRONTEND-PROXY-RATE-LIMITING.md for details and examples
+
 opentelemetry-collector:
   clusterRole:
     create: true
