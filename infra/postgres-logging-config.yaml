@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: postgres-logging-config
+  namespace: otel-demo
+data:
+  # PostgreSQL logging configuration for lock visibility and performance analysis
+  # Apply with: kubectl apply -f postgres-logging-config.yaml
+  # Then restart PostgreSQL pod to pick up changes
+
+  log_lock_waits: "on"
+  deadlock_timeout: "1s"
+  log_min_duration_statement: "1000"
+  log_line_prefix: "%t [%p] %u@%d "
+  log_checkpoints: "on"
+  log_connections: "on"
+  log_disconnections: "on"
+  log_duration: "off"
+  log_statement: "none"
+  log_destination: "stderr"

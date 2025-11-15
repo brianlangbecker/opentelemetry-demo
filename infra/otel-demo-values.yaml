@@ -24,11 +24,32 @@ components:
         memory: 300Mi
       requests:
         memory: 300Mi
+    # PostgreSQL logging configuration for lock and performance visibility
+    envOverrides:
+      - name: POSTGRES_LOGGING_COLLECTOR
+        value: "on"
+      - name: POSTGRES_LOG_DIRECTORY
+        value: "/var/log/postgresql"
+      - name: POSTGRES_LOG_FILENAME
+        value: "postgresql.log"
+      - name: POSTGRES_LOG_LOCK_WAITS
+        value: "on"
+      - name: POSTGRES_DEADLOCK_TIMEOUT
+        value: "1s"
+      - name: POSTGRES_LOG_MIN_DURATION_STATEMENT
+        value: "1000"  # Log queries >1 second
+      - name: POSTGRES_LOG_LINE_PREFIX
+        value: "%t [%p] %u@%d "
+      - name: POSTGRES_LOG_CHECKPOINTS
+        value: "on"
+      - name: POSTGRES_LOG_CONNECTIONS
+        value: "on"
+      - name: POSTGRES_LOG_DISCONNECTIONS
+        value: "on"
     # Optional: Reduce shared_buffers for IOPS pressure demo
     # Lower cache = more disk reads = visible IOPS issues
-    # envOverrides:
-    #   - name: POSTGRES_SHARED_BUFFERS
-    #     value: "32MB"  # Default: 128MB. Use 32MB or 64MB for chaos demo
+    # - name: POSTGRES_SHARED_BUFFERS
+    #   value: "32MB"  # Default: 128MB. Use 32MB or 64MB for chaos demo
 
   checkout:
     resources:

@@ -4,8 +4,11 @@ spec:
       containers:
       # Existing PostgreSQL container (first in list)
       - name: postgresql
-        # No changes to existing container
-        
+        # Mount shared log volume
+        volumeMounts:
+          - name: postgres-logs
+            mountPath: /var/log/postgresql
+
       # Add OTel Collector sidecar
       - name: otel-collector
         image: otel/opentelemetry-collector-contrib:0.135.0
@@ -38,6 +41,10 @@ spec:
           - name: postgresql-data
             mountPath: /var/lib/postgresql/data
             readOnly: true
+          # Mount shared log volume to read PostgreSQL logs
+          - name: postgres-logs
+            mountPath: /var/log/postgresql
+            readOnly: true
       
       volumes:
         # Add ConfigMap volume for OTel Collector config
@@ -47,4 +54,7 @@ spec:
             items:
               - key: otelcol-config.yaml
                 path: otelcol-config.yaml
+        # Shared volume for PostgreSQL logs
+        - name: postgres-logs
+          emptyDir: {}
 
