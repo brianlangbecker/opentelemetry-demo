@@ -2,7 +2,7 @@
 
 ## Current Status
 
-PostgreSQL logging configuration has been prepared but **requires manual activation** after Helm install due to limitations with the official PostgreSQL Docker image's environment variable handling.
+PostgreSQL logging is **FULLY OPERATIONAL** using a Kubernetes Job-based activation approach. Logs are flowing to Honeycomb under the `postgresql-sidecar` dataset.
 
 ## What's Been Configured
 
@@ -50,54 +50,45 @@ The sidecar patch adds:
 - Mounted in PostgreSQL container at `/var/log/postgresql` (write)
 - Mounted in OTel collector sidecar at `/var/log/postgresql` (read-only)
 
-## Current Limitation
+## How It Works
 
-**Issue**: The official PostgreSQL Docker image does not properly honor `POSTGRES_*` environment variables for logging configuration.
+### Kubernetes Job Activation (Persistent Solution)
 
-**Evidence**:
+The logging configuration is activated by a Kubernetes Job (`postgres-logging-setup-job.yaml`) that:
+
+1. Waits for PostgreSQL to be ready
+2. Uses `ALTER SYSTEM` SQL commands to configure logging settings
+3. Settings are written to `postgresql.auto.conf` (stored in the PVC)
+4. Configuration persists across pod restarts
+5. Job auto-cleans up after 5 minutes
+
+**Deploy the Job**:
 ```bash
-$ kubectl exec deployment/postgresql -c postgresql -- psql -U root -d otel -c "SHOW logging_collector;"
- logging_collector
--------------------
- off
+kubectl apply -f infra/postgres-logging-setup-job.yaml
 ```
 
-The env vars are set, but PostgreSQL ignores them because they're not in the standard list that the entrypoint script processes.
-
-## Workaround Options
-
-### Option 1: Manual SQL Configuration (Temporary - Lost on Restart)
+**Verify Settings**:
 ```bash
-kubectl exec -n otel-demo deployment/postgresql -c postgresql -- psql -U root -d otel << 'EOF'
-ALTER SYSTEM SET logging_collector = 'on';
-ALTER SYSTEM SET log_directory = '/var/log/postgresql';
-ALTER SYSTEM SET log_filename = 'postgresql.log';
-ALTER SYSTEM SET log_lock_waits = 'on';
-ALTER SYSTEM SET deadlock_timeout = '1s';
-ALTER SYSTEM SET log_min_duration_statement = '1000';
-ALTER SYSTEM SET log_line_prefix = '%t [%p] %u@%d ';
-SELECT pg_reload_conf();
-EOF
+kubectl exec -n otel-demo deployment/postgresql -c postgresql -- \
+  psql -U root -d otel -c "SHOW logging_collector; SHOW log_lock_waits;"
 ```
 
-Then restart PostgreSQL:
-```bash
-kubectl rollout restart deployment/postgresql -n otel-demo
-```
+**Settings Applied**:
+- `logging_collector = on` - Enable file logging
+- `log_directory = /var/log/postgresql` - Log file location
+- `log_lock_waits = on` - Log lock waits >1s (KEY for table lock detection)
+- `deadlock_timeout = 1s` - Trigger lock wait logging after 1s
+- `log_min_duration_statement = 1000` - Log slow queries >1s
+- `log_connections/disconnections = on` - Connection tracking
+- `log_checkpoints = on` - Performance analysis
 
-### Option 2: Custom PostgreSQL Image (Permanent Solution)
-Create a custom PostgreSQL image that:
-1. Extends the official postgres:17 image
-2. Adds custom entrypoint that processes our logging env vars
-3. Push to ECR and update Helm values to use custom image
+### Why Not Environment Variables?
 
-### Option 3: Init Container (Alternative Permanent Solution)
-Add init container that:
-1. Creates `/var/lib/postgresql/data/postgresql.auto.conf` with settings
-2. PostgreSQL reads this on startup
+The official PostgreSQL Docker image only processes a limited set of environment variables (POSTGRES_DB, POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_INITDB_ARGS). Custom logging env vars like `POSTGRES_LOG_LOCK_WAITS` are ignored by the entrypoint script.
 
-### Option 4: ConfigMap + Volume Mount
-Create ConfigMap with `postgresql.conf` and mount it into the container.
+### Why Not Init Container?
+
+Init containers run BEFORE PostgreSQL's entrypoint. The entrypoint runs `initdb` which creates a fresh `postgresql.auto.conf`, overwriting anything written by the init container. The Job approach works because it runs AFTER PostgreSQL is fully initialized.
 
 ## What You Get When Logging Works
 
@@ -156,37 +147,70 @@ LOG: process XXXXX still waiting for ShareLock on transaction YYYYY after 1000.X
 
 ## Files Modified/Created
 
-- ✅ `infra/postgres-otel-configmap.yaml` - Added filelog receiver
-- ✅ `infra/postgres-otel-sidecar-patch.yaml` - Added shared log volume
-- ✅ `infra/otel-demo-values.yaml` - Added logging env vars
-- ✅ `infra/otel-demo-values-aws.yaml` - Added logging env vars
+- ✅ `infra/postgres-otel-configmap.yaml` - Filelog receiver with regex parsing
+- ✅ `infra/postgres-otel-sidecar-patch.yaml` - Shared log volume + init container
+- ✅ `infra/postgres-logging-setup-job.yaml` - **Job to activate logging** (apply this!)
+- ✅ `infra/postgres-logging-init-configmap.yaml` - Init container config (currently unused)
+- ✅ `infra/postgres-logging-init.sh` - Init script (reference, not used in final solution)
+- ✅ `infra/otel-demo-values.yaml` - Logging env vars (documentation only)
+- ✅ `infra/otel-demo-values-aws.yaml` - Logging env vars (documentation only)
 - ✅ `infra/postgres-logging-config.yaml` - Standalone config (reference)
 - ✅ `infra/POSTGRESQL-LOGGING.md` - This file
 
-## Next Steps
+## Verification Steps
 
-Choose one of the workaround options above to actually enable file logging. Once enabled:
+### 1. Check Log Files Exist
+```bash
+kubectl exec -n otel-demo deployment/postgresql -c postgresql -- \
+  ls -la /var/log/postgresql/
+```
 
-1. Verify log file exists:
-   ```bash
-   kubectl exec -n otel-demo deployment/postgresql -c postgresql -- ls -la /var/log/postgresql/
-   ```
+Expected: `postgresql-YYYY-MM-DD_HHMMSS.log` files
 
-2. Check OTel collector is reading it:
-   ```bash
-   kubectl logs -n otel-demo deployment/postgresql -c otel-collector | grep filelog
-   ```
+### 2. Check OTel Collector is Reading Logs
+```bash
+kubectl logs -n otel-demo deployment/postgresql -c otel-collector --tail=50 | grep filelog
+```
 
-3. Verify logs in Honeycomb:
-   ```
-   WHERE service.name = "postgresql-sidecar"
-     AND component = "postgresql"
-   CALCULATE COUNT
-   ```
+Expected: `Started watching file` and no regex errors
+
+### 3. Verify Logs in Honeycomb
+Query the `postgresql-sidecar` dataset:
+```
+WHERE service.name = "postgresql-sidecar"
+  AND component = "postgresql"
+GROUP BY level
+CALCULATE COUNT
+```
+
+Expected: See LOG, FATAL levels with parsed fields (user, database, pid, timestamp)
+
+### 4. Test Lock Wait Detection
+```sql
+-- Terminal 1: Start transaction with lock
+kubectl exec -n otel-demo deployment/postgresql -c postgresql -- \
+  psql -U root -d otel -c "BEGIN; UPDATE products SET name = 'test' WHERE id = '1';"
+# Don't commit - leave it hanging
+
+-- Terminal 2: Try to update same row (will wait)
+kubectl exec -n otel-demo deployment/postgresql -c postgresql -- \
+  psql -U root -d otel -c "UPDATE products SET name = 'test2' WHERE id = '1';"
+```
+
+After 1 second, check Honeycomb:
+```
+WHERE service.name = "postgresql-sidecar"
+  AND body CONTAINS "still waiting for"
+CALCULATE COUNT
+```
+
+Expected: Log entries with parsed `waiting_pid`, `lock_type`, `wait_time_ms` attributes
 
 ## Summary
 
-**Current state**: Infrastructure ready, manual activation required
-**Effort to activate**: 5 minutes (run SQL commands)
-**Future state**: Need custom image or init container for permanent solution
+**Current state**: ✅ Fully operational - logs flowing to Honeycomb
+**Activation method**: Kubernetes Job with ALTER SYSTEM commands
+**Persistence**: Settings stored in postgresql.auto.conf (survives restarts)
+**Data available**: Connection logs, slow queries, lock waits, deadlocks, checkpoints
+**Honeycomb dataset**: `postgresql-sidecar`
 **Value**: Direct visibility into table locks, deadlocks, slow queries with full SQL context

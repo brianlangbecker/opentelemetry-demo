@@ -1,59 +1,19 @@
 # Filesystem Growth / Disk Exhaustion - OpenSearch
 
-## Overview
+Demonstrate filesystem/disk growth by flooding OpenSearch with telemetry data using feature flags and load generation. **Zero code changes required.**
 
-This guide demonstrates how to observe **filesystem/disk growth** by flooding OpenSearch with telemetry data using feature flags and load generation - **with ZERO code changes required**.
+## What It Does
 
-### Use Case Summary
-
-- **Target Service:** OpenSearch (stores all logs and traces)
-- **Method:** Flood with error logs using feature flags + sustained traffic
-- **Trigger Mechanism:** Multiple FlagD feature flags + Locust load generator
-- **Observable Outcome:** Disk grows from ~900MB → 4-5GB in 2-3 hours
-- **Pattern:** Cumulative log accumulation from error-generating flags
-- **Monitoring:** Honeycomb UI + Docker/kubectl disk commands
+**Target:** OpenSearch (stores all logs and traces)
+**Method:** Flood with error logs using feature flags + sustained traffic
+**Outcome:** Disk grows from ~900MB → 4-5GB in 2-3 hours
+**Pattern:** Cumulative log accumulation
 
 ---
 
-## Related Scenarios
+## Quick Start
 
-| Scenario | Target | Data Type | Growth Pattern |
-|----------|--------|-----------|----------------|
-| **[Filesystem Growth](filesystem-growth-crash-simple.md)** | OpenSearch | Logs/traces | Cumulative disk growth (this guide) |
-| **[Postgres Disk/IOPS](postgres-disk-iops-pressure.md)** | PostgreSQL | Transactional data | Database growth + I/O pressure |
-
-**Key Difference:** This demonstrates **log/trace data accumulation** in storage backend vs transactional database growth.
-
----
-
-## Prerequisites
-
-- OpenTelemetry Demo running with telemetry configured to send to Honeycomb
-- Kubernetes cluster with kubectl access
-- Access to Honeycomb UI
-- FlagD UI accessible
-
----
-
-## How It Works
-
-OpenSearch stores all logs and traces to disk. By enabling error flags and generating load, services produce large volumes of error logs that accumulate in OpenSearch storage, causing disk usage to grow from ~900MB to 4-5GB in 2-3 hours.
-
----
-
-## Execution Steps:
-
-### Step 1: Check Starting Size
-
-```bash
-kubectl exec -it opensearch-0 -n otel-demo -- du -sh /usr/share/opensearch/data
-```
-
-You'll see something like: **~150MB to 1GB** (baseline - depends on existing data)
-
-### Step 2: Enable Error Flags
-
-Go to **FlagD UI** (`http://localhost:4000`):
+**1. Enable error flags (FlagD UI: http://localhost:4000):**
 
 | Flag | Setting | Effect |
 |------|---------|--------|
@@ -62,44 +22,39 @@ Go to **FlagD UI** (`http://localhost:4000`):
 | `paymentFailure` | `100%` | All payments fail with stack traces |
 | `adFailure` | `on` | Continuous error logs |
 
-### Step 3: Generate High Traffic
+**2. Generate high traffic (Locust: http://localhost:8089):**
+- Users: 50
+- Runtime: 120-180m (2-3 hours)
 
-**Locust** (`http://localhost:8089`):
-- **Users:** `50` (if load-generator is limited)
-- **Ramp up:** `5`
-- **Runtime:** `120m` to `180m` (2-3 hours for observable growth)
-- Click **Start**
+**3. Expected growth (starting from ~760MB):**
+```
+760M → 1.0G (15min) → 1.4G (30min) → 2.0G (60min) → 3.3G (120min) → 4.8G (180min)
+```
 
-**Note:** With 50 users, disk growth is slower but steady. Expect ~500MB-1GB per hour instead of 1-2GB/hour with higher user counts.
+**Growth rate:** ~500MB-1GB per hour with error flags enabled
 
-### Step 4: Monitor Growth
+---
+
+## Monitoring Disk Growth
+
+### Check Current Size
+
+```bash
+kubectl exec -it opensearch-0 -n otel-demo -- du -sh /usr/share/opensearch/data
+```
 
 **Watch disk grow (updates every 10s):**
-
 ```bash
 watch -n 10 "kubectl exec opensearch-0 -n otel-demo -- du -sh /usr/share/opensearch/data"
 ```
 
-Expected growth with 50 users (starting from ~760MB):
-```
-760M  → 1.0G (15min) → 1.4G (30min) → 2.0G (60min) → 3.3G (120min) → 4.8G (180min)
-```
+---
 
-Growth rate: **~500MB-1GB per hour** with error flags enabled.
+### Check Indices
 
-**Check indices:**
-
+**List indices with sizes:**
 ```bash
-# List indices with sizes
 kubectl exec opensearch-0 -n otel-demo -- curl -s http://localhost:9200/_cat/indices?v
-```
-
-**Example output:**
-```
-health status index                    docs.count store.size
-yellow open   .opensearch-observability         0      208b
-yellow open   otel-logs-2025-10-23         125847      1.2gb
-yellow open   otel-logs-2025-10-22          98234    890.5mb
 ```
 
 **Sorted by size (largest first):**
@@ -107,113 +62,94 @@ yellow open   otel-logs-2025-10-22          98234    890.5mb
 kubectl exec opensearch-0 -n otel-demo -- curl -s 'http://localhost:9200/_cat/indices?v&s=store.size:desc'
 ```
 
-**Check cluster health:**
+**Example output:**
+```
+health status index                    docs.count store.size
+yellow open   otel-logs-2025-10-23         125847      1.2gb
+yellow open   otel-logs-2025-10-22          98234    890.5mb
+```
+
+---
+
+### Check Cluster Health
 
 ```bash
 kubectl exec opensearch-0 -n otel-demo -- curl -s http://localhost:9200/_cluster/health?pretty
 ```
 
-**Example output (healthy):**
-```json
-{
-  "cluster_name" : "opensearch-cluster",
-  "status" : "green",
-  "number_of_nodes" : 1,
-  "number_of_data_nodes" : 1,
-  "discovered_master" : true,
-  "active_primary_shards" : 3,
-  "active_shards" : 3
-}
-```
-
-**Example output (disk pressure):**
-```json
-{
-  "cluster_name" : "opensearch-cluster",
-  "status" : "yellow",  // ← Warning sign
-  "number_of_nodes" : 1,
-  "number_of_data_nodes" : 1
-}
-```
-
-**What to watch for:**
+**Health statuses:**
 - `"status": "green"` = Healthy
 - `"status": "yellow"` = Warning (disk pressure starting)
 - `"status": "red"` = Critical (disk full or service degraded)
 
-### Step 5: Monitor Growth in Honeycomb
+---
 
-#### A. OpenSearch Disk Usage (Primary Metric)
+## Honeycomb Monitoring
 
-**Query for disk usage:**
+### OpenSearch Disk Usage
+
 ```
-WHERE k8s.pod.name = opensearch-0
+WHERE k8s.pod.name = "opensearch-0"
 VISUALIZE MAX(k8s.pod.ephemeral-storage.used)
 GROUP BY time(1m)
-TIME RANGE: Last 3 hours
 ```
 
 **Alternative - Filesystem usage:**
 ```
-WHERE k8s.pod.name = opensearch-0
+WHERE k8s.pod.name = "opensearch-0"
 VISUALIZE MAX(k8s.filesystem.usage)
 GROUP BY time(30s)
-TIME RANGE: Last 3 hours
 ```
 
-**What to look for:**
-- Steady upward trend (linear growth)
-- Starting around 762MB
-- Growing ~500MB-1GB per hour
-- Should reach 4-5GB after 3 hours
+**Expected:** Steady upward trend, ~500MB-1GB per hour
 
-#### B. Log Volume (Driving Disk Growth)
+---
 
-**Total log events per minute:**
+### Log Volume (Driving Disk Growth)
+
 ```
-WHERE service.name exists
+WHERE service.name EXISTS
 VISUALIZE COUNT
 GROUP BY time(1m)
-TIME RANGE: Last 3 hours
 ```
 
-**With error flags enabled, should see 10-100x increase in log volume.**
+**With error flags enabled:** 10-100x increase in log volume
 
-#### C. Checkout Activity (Primary Driver)
+---
 
-**Checkouts generating logs:**
+### Checkout Activity (Primary Driver)
+
 ```
-WHERE service.name = checkout AND name = PlaceOrder
+WHERE service.name = "checkout" AND name = "PlaceOrder"
 VISUALIZE COUNT
 GROUP BY time(1m)
-TIME RANGE: Last 3 hours
 ```
 
-Each checkout with `kafkaQueueProblems: 2000` generates ~250KB of logs.
+**Note:** Each checkout with `kafkaQueueProblems: 2000` generates ~250KB of logs
 
-#### D. Error Rate (More Logs)
+---
 
-**Errors by service:**
+### Error Rate
+
 ```
-WHERE service.name exists
+WHERE service.name EXISTS
 VISUALIZE COUNT
 GROUP BY service.name, otel.status_code
-TIME RANGE: Last 3 hours
 ```
 
-Errors generate much more verbose logs than success.
+**Note:** Errors generate much more verbose logs than success
 
-#### E. OpenSearch Health Metrics
+---
 
-**Check for performance degradation:**
+### OpenSearch Performance Degradation
+
 ```
-WHERE service.name = opensearch OR k8s.pod.name = opensearch-0
+WHERE service.name = "opensearch" OR k8s.pod.name = "opensearch-0"
 VISUALIZE P95(duration_ms)
 GROUP BY time(1m)
-TIME RANGE: Last 3 hours
 ```
 
-As disk fills, OpenSearch queries slow down.
+**Pattern:** As disk fills, OpenSearch queries slow down
 
 ---
 
@@ -228,9 +164,48 @@ As disk fills, OpenSearch queries slow down.
 | 180m | 4GB+ | Disk pressure |
 | 240m | 5-6GB | May hit limits |
 
-**With 50 users, you need to run 2-4 hours to see significant disk growth.**
+**Note:** With 50 users, run 2-4 hours to see significant disk growth.
 
-**To reset:** Just restart the pod/container - disk clears automatically.
+---
+
+## Alerts
+
+### Alert 1: High Disk Usage
+
+**Query:**
+```
+WHERE k8s.pod.name = "opensearch-0"
+VISUALIZE MAX(k8s.pod.ephemeral-storage.used)
+GROUP BY time(5m)
+```
+
+**Trigger:**
+- **Threshold:** MAX(k8s.pod.ephemeral-storage.used) > 4GB
+- **Duration:** For at least 5 minutes
+- **Severity:** WARNING
+
+**Notification:**
+```
+⚠️ OpenSearch Disk Usage High
+
+Pod: opensearch-0
+Disk Usage: {{MAX(k8s.pod.ephemeral-storage.used)}} bytes
+
+Action: Check log retention policies or increase storage
+```
+
+---
+
+### Alert 2: Cluster Health Degraded
+
+**Manual check:**
+```bash
+kubectl exec opensearch-0 -n otel-demo -- curl -s http://localhost:9200/_cluster/health | jq -r .status
+```
+
+**Expected:** "green" (healthy)
+**Warning:** "yellow" (disk pressure)
+**Critical:** "red" (disk full)
 
 ---
 
@@ -240,15 +215,17 @@ As disk fills, OpenSearch queries slow down.
 
 **Increase traffic:**
 - More Locust users (200+)
-- Longer runtime (hours)
+- Longer runtime
 
 **Generate more logs:**
 - Enable more error flags
-- All flags that cause failures generate verbose logs
+- All failure flags generate verbose logs
+
+---
 
 ### Cluster Running Out of Space
 
-**Check available space on nodes:**
+**Check node space:**
 ```bash
 kubectl get nodes
 kubectl describe node <node-name> | grep -A 10 "Allocated resources"
@@ -256,41 +233,39 @@ kubectl describe node <node-name> | grep -A 10 "Allocated resources"
 
 ---
 
-## Learning Outcomes
+## Cleanup
 
-After completing this use case, you will have observed:
+**Restart pod (clears disk automatically):**
+```bash
+kubectl delete pod opensearch-0 -n otel-demo
+```
 
-1. ✅ **Log accumulation** from high-traffic applications
-2. ✅ **Disk growth patterns** from logging configuration
-3. ✅ **Service degradation** under disk pressure
-4. ✅ **Data store growth** (OpenSearch example)
-5. ✅ **Correlation between** traffic volume and disk usage
-6. ✅ **Resource management** in containerized environments
-7. ✅ **Honeycomb monitoring** of service performance
+**Disable flags (FlagD UI):**
+- Set all error flags back to `off`
 
----
-
-## Recommendations
-
-**For Quick Demo:**
-- Set very low ephemeral-storage limit (100Mi) on pods in Kubernetes
-- Generate moderate traffic
-- Pod eviction happens in minutes
-
-**For Realistic Scenario:**
-- Flood OpenSearch with telemetry data
-- Observe data store growth
-- Most similar to production issues
+**Stop load test:**
+- Stop Locust (http://localhost:8089)
 
 ---
 
-## Summary
+## Key Points
 
-This guide shows **filesystem growth with ZERO code changes** using:
-- ✅ Logging configuration changes
-- ✅ Existing feature flags
-- ✅ Load generation
-- ✅ Observable in Honeycomb
-- ✅ Quick to set up and test
+1. **Zero code changes** - Uses existing feature flags
+2. **Log accumulation** - High error rate = high log volume
+3. **Disk growth correlation** - Traffic volume drives disk usage
+4. **Service degradation** - Performance slows as disk fills
+5. **Easy reset** - Restart pod to clear disk
 
-**Key takeaway:** You can observe filesystem growth and disk pressure without writing any code - just by controlling logging behavior and generating sufficient load.
+---
+
+## Production Scenarios Simulated
+
+- Log retention issues
+- High error rates causing disk pressure
+- Data store growth without cleanup
+- Service degradation under disk pressure
+- Resource management in containerized environments
+
+---
+
+**Growth Rate:** ~500MB-1GB/hour | **Runtime:** 2-4 hours | **Zero Code Changes:** ✅

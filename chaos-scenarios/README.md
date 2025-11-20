@@ -1,89 +1,58 @@
 # Chaos Engineering Scenarios
 
-This directory contains ready-to-use chaos engineering and failure scenario guides for the OpenTelemetry Demo.
+Ready-to-use chaos engineering guides for the OpenTelemetry Demo. All scenarios require **zero code changes**.
 
----
+## Available Scenarios
 
-## 📚 **Available Scenarios**
+### Memory & Resource Exhaustion
 
-### **Memory & Resource Exhaustion**
+| Scenario | File | Target | Options |
+|----------|------|--------|---------|
+| Memory Chaos | [MEMORY-CHAOS.md](MEMORY-CHAOS.md) | Checkout (Go), Ad Service (Java) | Spike (60-90s), Leak (10-20m), GC Thrashing (continuous) |
 
-| **Scenario**                | **File**                                                           | **Target Service**                | **Time to Failure**            |
-| --------------------------- | ------------------------------------------------------------------ | --------------------------------- | ------------------------------ |
-| Memory Spike / Sudden Crash | [memory-tracking-spike-crash.md](memory-tracking-spike-crash.md)   | Checkout (Go) + Accounting (.NET) | Configurable: slow/medium/fast |
-| Gradual Memory Leak         | [memory-leak-gradual-checkout.md](memory-leak-gradual-checkout.md) | Checkout (Go)                     | 10-20 minutes                  |
-| JVM GC Thrashing            | [jvm-gc-thrashing-ad-service.md](jvm-gc-thrashing-ad-service.md)   | Ad Service (Java)                 | Continuous (10s cycles)        |
+### Disk & Storage Pressure
 
-### **Disk & Storage Pressure**
+| Scenario | File | Target | Time to Failure |
+|----------|------|--------|-----------------|
+| Filesystem Growth | [filesystem-growth-crash-simple.md](filesystem-growth-crash-simple.md) | OpenSearch | 2-3 hours |
+| Database Chaos | [DATABASE-CHAOS.md](DATABASE-CHAOS.md) | PostgreSQL | Multiple options: organic (2-4h), fast (1-2h), immediate, table locks (10min) |
 
-| **Scenario**                  | **File**                                                               | **Target** | **Time to Failure** |
-| ----------------------------- | ---------------------------------------------------------------------- | ---------- | ------------------- |
-| Filesystem Growth / Disk Full | [filesystem-growth-crash-simple.md](filesystem-growth-crash-simple.md) | OpenSearch | 2-3 hours           |
-| PostgreSQL IOPS Pressure      | [postgres-disk-iops-pressure.md](postgres-disk-iops-pressure.md)       | PostgreSQL | 2-4 hours (or immediate with cache reduction) |
+### Infrastructure Failures
 
-**Setup Guide:**
+See [OBSERVABILITY-PATTERNS.md](OBSERVABILITY-PATTERNS.md) for DNS failure scenarios (complete failure vs capacity issues)
 
-- [postgres-seed-for-iops.md](postgres-seed-for-iops.md) - Pre-seed database for instant IOPS pressure (optional)
+### Observability & Alerting
 
-### **Infrastructure Failures**
+| Guide | Purpose |
+|-------|---------|
+| [OBSERVABILITY-PATTERNS.md](OBSERVABILITY-PATTERNS.md) | What you can observe during crashes and DNS issues + recommended alerts/SLOs |
 
-| **Scenario**           | **File**                                                   | **Method**             | **Time to Failure** |
-| ---------------------- | ---------------------------------------------------------- | ---------------------- | ------------------- |
-| DNS Resolution Failure | [dns-resolution-failure.md](dns-resolution-failure.md)     | Scale CoreDNS to 0     | Immediate to 5 min  |
-| DNS Capacity Issues    | [dns-insufficient-coredns.md](dns-insufficient-coredns.md) | Scale CoreDNS down 80% | 3-10 minutes        |
+## Quick Start
 
----
+1. Choose a scenario from the tables above
+2. Read the guide (each is self-contained)
+3. Follow the step-by-step instructions
+4. Monitor in Honeycomb using provided queries
 
-## 🚀 **Quick Start**
+## What Each Scenario Includes
 
-1. **Choose a scenario** from the list above
-2. **Read the guide** - each file is a complete standalone guide
-3. **Follow the steps** - all scenarios are ready to use, no code changes needed
-4. **Monitor in Honeycomb** - queries provided in each guide
+- Overview and prerequisites
+- Technical explanation
+- Execution steps for Kubernetes
+- Honeycomb queries (5-10 essential queries)
+- Expected timeline
+- Troubleshooting tips
+- Cleanup instructions
 
----
+## Use Cases
 
-## 📖 **Main Documentation**
+- **Training**: Teach observability and incident response
+- **Demos**: Showcase monitoring capabilities
+- **Testing**: Validate alerts and dashboards
+- **SRE Practice**: Chaos engineering exercises
 
-For a comprehensive overview, matrix view, and category breakdowns, see:
+## Related Resources
 
-- **[ChaosTesting.md](../ChaosTesting.md)** - Master index of all chaos scenarios
-
-For general verification:
-
-- **[verify-postgres.md](../infra/verify-postgres.md)** - PostgreSQL verification and troubleshooting
-
----
-
-## ✅ **Scenario Template**
-
-Each scenario guide includes:
-
-- **Overview** - What it demonstrates
-- **Prerequisites** - Required setup
-- **How It Works** - Technical explanation
-- **Step-by-Step Instructions** - Clear execution steps
-- **Honeycomb Queries** - 10+ ready-to-use queries
-- **Expected Timeline** - What to expect and when
-- **Troubleshooting** - Common issues and fixes
-- **Cleanup** - How to reset
-
----
-
-## 🎯 **Use Cases**
-
-These scenarios are perfect for:
-
-- **Training** - Teaching observability and incident response
-- **Demos** - Showing monitoring capabilities
-- **Testing** - Validating alerting and dashboards
-- **SRE Practice** - Chaos engineering exercises
-- **Customer Presentations** - Real-world failure scenarios
-
----
-
-## 🔗 **Related Resources**
-
-- [OpenTelemetry Demo](https://github.com/open-telemetry/opentelemetry-demo)
+- [../infra/README.md](../infra/README.md) - Infrastructure setup guide
 - [Chaos Engineering Principles](https://principlesofchaos.org/)
 - [Honeycomb Documentation](https://docs.honeycomb.io)

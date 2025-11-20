@@ -1,170 +1,237 @@
-<!-- markdownlint-disable-next-line -->
-# <img src="https://opentelemetry.io/img/logos/opentelemetry-logo-nav.png" alt="OTel logo" width="45"> OpenTelemetry Demo
+# OpenTelemetry Demo (Fork)
 
-[![Slack](https://img.shields.io/badge/slack-@cncf/otel/demo-brightgreen.svg?logo=slack)](https://cloud-native.slack.com/archives/C03B4CWV4DA)
-[![Version](https://img.shields.io/github/v/release/open-telemetry/opentelemetry-demo?color=blueviolet)](https://github.com/open-telemetry/opentelemetry-demo/releases)
-[![Commits](https://img.shields.io/github/commits-since/open-telemetry/opentelemetry-demo/latest?color=ff69b4&include_prereleases)](https://github.com/open-telemetry/opentelemetry-demo/graphs/commit-activity)
-[![Downloads](https://img.shields.io/docker/pulls/otel/demo)](https://hub.docker.com/r/otel/demo)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg?color=red)](https://github.com/open-telemetry/opentelemetry-demo/blob/main/LICENSE)
-[![Integration Tests](https://github.com/open-telemetry/opentelemetry-demo/actions/workflows/run-integration-tests.yml/badge.svg)](https://github.com/open-telemetry/opentelemetry-demo/actions/workflows/run-integration-tests.yml)
-[![Artifact Hub](https://img.shields.io/endpoint?url=https://artifacthub.io/badge/repository/opentelemetry-demo)](https://artifacthub.io/packages/helm/opentelemetry-helm/opentelemetry-demo)
-[![OpenSSF Best Practices](https://www.bestpractices.dev/projects/9247/badge)](https://www.bestpractices.dev/en/projects/9247)
+This is a fork of the [official OpenTelemetry Demo](https://github.com/open-telemetry/opentelemetry-demo) with custom chaos engineering scenarios.
 
-## Welcome to the OpenTelemetry Astronomy Shop Demo
+## Quick Start
 
-This repository contains the OpenTelemetry Astronomy Shop, a microservice-based
-distributed system intended to illustrate the implementation of OpenTelemetry in
-a near real-world environment.
+**Official Documentation:** https://opentelemetry.io/docs/demo/
 
-Our goals are threefold:
-
-- Provide a realistic example of a distributed system that can be used to
-  demonstrate OpenTelemetry instrumentation and observability.
-- Build a base for vendors, tooling authors, and others to extend and
-  demonstrate their OpenTelemetry integrations.
-- Create a living example for OpenTelemetry contributors to use for testing new
-  versions of the API, SDK, and other components or enhancements.
-
-We've already made [huge
-progress](https://github.com/open-telemetry/opentelemetry-demo/blob/main/CHANGELOG.md),
-and development is ongoing. We hope to represent the full feature set of
-OpenTelemetry across its languages in the future.
-
-If you'd like to help (**which we would love**), check out our [contributing
-guidance](./CONTRIBUTING.md).
-
-If you'd like to extend this demo or maintain a fork of it, read our
-[fork guidance](https://opentelemetry.io/docs/demo/forking/).
-
-## Quick start
-
-You can be up and running with the demo in a few minutes. Check out the docs for
-your preferred deployment method:
-
+**Deployment:**
 - [Docker](https://opentelemetry.io/docs/demo/docker_deployment/)
 - [Kubernetes](https://opentelemetry.io/docs/demo/kubernetes_deployment/)
 
-## Documentation
+## What's Different in This Fork
 
-For detailed documentation, see [Demo Documentation][docs]. If you're curious
-about a specific feature, the [docs landing page][docs] can point you in the
-right direction.
+### Custom Chaos Engineering Scenarios
 
-## Chaos Engineering & Failure Scenarios
+See [chaos-scenarios/README.md](chaos-scenarios/README.md) for ready-to-use failure scenarios:
+- Memory exhaustion and leaks
+- JVM GC thrashing
+- Disk/storage pressure
+- DNS failures
+- Database chaos
 
-This repository includes comprehensive guides for demonstrating infrastructure failure scenarios using feature flags and load generation, with telemetry sent to Honeycomb for analysis.
+### Custom Infrastructure Setup
 
-📋 **[View Complete Chaos Testing Index →](ChaosTesting.md)**
+See [infra/README.md](infra/README.md) for:
+- Kubernetes deployment with persistent PostgreSQL
+- OpenTelemetry Collector sidecar configurations
+- Honeycomb integration
 
-Explore 8+ ready-to-use chaos engineering scenarios including:
-- Memory exhaustion (sudden spikes and gradual leaks)
-- JVM garbage collection thrashing
-- Disk/storage growth and IOPS pressure
-- DNS failures and capacity constraints
-- Database pressure and query degradation
+## Upstream Repository
 
-All scenarios require **zero code changes** and include Honeycomb queries, dashboards, and observability patterns.
+**Main Repo:** https://github.com/open-telemetry/opentelemetry-demo
 
-## Demos featuring the Astronomy Shop
+For general documentation, contributing guidelines, and community information, refer to the upstream repository.
 
-We welcome any vendor to fork the project to demonstrate their services and
-adding a link below. The community is committed to maintaining the project and
-keeping it up to date for you.
+---
 
-|                           |                |                                  |
-|---------------------------|----------------|----------------------------------|
-| [AlibabaCloud LogService] | [Elastic]      | [Oracle]                         |
-| [Apache Doris]            | [Google Cloud] | [Parseable]                      |
-| [AppDynamics]             | [Grafana Labs] | [Sentry]                         |
-| [Aspecto]                 | [Guance]       | [ServiceNow Cloud Observability] |
-| [Axiom]                   | [Honeycomb.io] | [SigNoz]                         |
-| [Axoflow]                 | [Instana]      | [Splunk]                         |
-| [Azure Data Explorer]     | [Kloudfuse]    | [Sumo Logic]                     |
-| [Causely]                 | [Last9]        | [TelemetryHub]                   |
-| [ClickStack]              | [Liatrio]      | [Teletrace]                      |
-| [Coralogix]               | [Logz.io]      | [Tinybird]                       |
-| [Dash0]                   | [New Relic]    | [Tracetest]                      |
-| [Datadog]                 | [OpenObserve]  | [Uptrace]                        |
-| [Dynatrace]               | [OpenSearch]   | [VictoriaMetrics]                |
+## Appendix: Fork Differences
 
-## Contributing
+This appendix documents the key differences between this fork and the upstream OpenTelemetry Demo repository.
 
-To get involved with the project see our [CONTRIBUTING](CONTRIBUTING.md)
-documentation. Our [SIG Calls](CONTRIBUTING.md#join-a-sig-call) are every other
-Wednesday at 8:30 AM PST and anyone is welcome.
+### Chaos Engineering Documentation
 
-### Maintainers
+**Added:** Comprehensive chaos engineering scenarios with production-ready alerts
 
-- [Juliano Costa](https://github.com/julianocosta89), Datadog
-- [Mikko Viitanen](https://github.com/mviitane), Dynatrace
-- [Pierre Tessier](https://github.com/puckpuck), Honeycomb
-- [Roger Coll](https://github.com/rogercoll), Elastic
+| File | Description | Lines |
+|------|-------------|-------|
+| `chaos-scenarios/MEMORY-CHAOS.md` | Memory spike, gradual leak, JVM GC thrashing (3 scenarios) | 606 |
+| `chaos-scenarios/DATABASE-CHAOS.md` | PostgreSQL IOPS pressure, table locks, pre-seeding (2+ scenarios) | 645 |
+| `chaos-scenarios/OBSERVABILITY-PATTERNS.md` | Application crash & DNS observability + 17 production alerts + 3 SLOs | 701 |
+| `chaos-scenarios/frontend-flood-rate-limiting.md` | Rate limiting demonstration with Envoy | 246 |
+| `chaos-scenarios/filesystem-growth-crash-simple.md` | OpenSearch disk exhaustion | 271 |
+| `chaos-scenarios/istiod-crash-restart.md` | Istio control plane failures | 616 |
 
-For more information about the maintainer role, see the [community repository](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#maintainer).
+**Total:** 7 chaos scenario guides with 17 production-ready alerts
 
-### Approvers
+**Upstream equivalent:** None - original repo has no chaos engineering documentation
 
-- [Cedric Ziel](https://github.com/cedricziel), Grafana Labs
-- [Shenoy Pratik](https://github.com/ps48), AWS OpenSearch
+---
 
-For more information about the approver role, see the [community repository](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#approver).
+### Infrastructure Setup
 
-### Emeritus
+**Added:** Custom Kubernetes deployment configurations with Honeycomb integration
 
-- [Austin Parker](https://github.com/austinlparker)
-- [Carter Socha](https://github.com/cartersocha)
-- [Michael Maxwell](https://github.com/mic-max)
-- [Morgan McLean](https://github.com/mtwo)
-- [Penghan Wang](https://github.com/wph95)
-- [Reiley Yang](https://github.com/reyang)
-- [Ziqi Zhao](https://github.com/fatsheep9146)
+| File | Purpose |
+|------|---------|
+| `infra/otel-demo-values.yaml` | Helm values for local Kubernetes (Honeycomb-ready) |
+| `infra/otel-demo-values-aws.yaml` | Helm values for AWS EKS deployment |
+| `infra/install-with-persistence.sh` | One-command installer with PostgreSQL persistence |
+| `infra/postgres-persistent-setup.yaml` | PVC + ConfigMap for PostgreSQL with 2GB storage |
+| `infra/postgres-otel-sidecar-patch.yaml` | OTel Collector sidecar for PostgreSQL metrics |
+| `infra/INSTALL-FROM-SCRATCH.md` | Step-by-step Kubernetes installation guide |
+| `infra/POSTGRESQL-LOGGING.md` | Enable PostgreSQL table lock logging |
 
-For more information about the emeritus role, see the [community repository](https://github.com/open-telemetry/community/blob/main/guides/contributor/membership.md#emeritus-maintainerapprovertriager).
+**Key features:**
+- Persistent PostgreSQL storage (data survives restarts)
+- OpenTelemetry Collector sidecar for PostgreSQL metrics
+- Pre-configured Honeycomb API key integration
+- AWS-specific deployment configurations
 
-### Thanks to all the people who have contributed
+**Upstream equivalent:** Basic Helm charts without persistence or sidecar configurations
 
-[![contributors](https://contributors-img.web.app/image?repo=open-telemetry/opentelemetry-demo)](https://github.com/open-telemetry/opentelemetry-demo/graphs/contributors)
+---
 
-[docs]: https://opentelemetry.io/docs/demo/
+### PostgreSQL Chaos Scenarios
 
-<!-- Links for Demos featuring the Astronomy Shop section -->
+**Added:** Database chaos testing infrastructure
 
-[AlibabaCloud LogService]: https://github.com/aliyun-sls/opentelemetry-demo
-[AppDynamics]: https://community.splunk.com/t5/AppDynamics-Knowledge-Base/How-to-observe-Kubernetes-deployment-of-OpenTelemetry-demo-app/ta-p/741454
-[Apache Doris]: https://github.com/apache/doris-opentelemetry-demo
-[Aspecto]: https://github.com/aspecto-io/opentelemetry-demo
-[Axiom]: https://play.axiom.co/axiom-play-qf1k/dashboards/otel.traces.otel-demo-traces
-[Axoflow]: https://axoflow.com/opentelemetry-support-in-more-detail-in-axosyslog-and-syslog-ng/
-[Azure Data Explorer]: https://github.com/Azure/Azure-kusto-opentelemetry-demo
-[Causely]: https://github.com/causely-oss/otel-demo
-[ClickStack]: https://github.com/ClickHouse/opentelemetry-demo
-[Coralogix]: https://coralogix.com/blog/configure-otel-demo-send-telemetry-data-coralogix
-[Dash0]: https://github.com/dash0hq/opentelemetry-demo
-[Datadog]: https://docs.datadoghq.com/opentelemetry/guide/otel_demo_to_datadog
-[Dynatrace]: https://www.dynatrace.com/news/blog/opentelemetry-demo-application-with-dynatrace/
-[Elastic]: https://github.com/elastic/opentelemetry-demo
-[Google Cloud]: https://github.com/GoogleCloudPlatform/opentelemetry-demo
-[Grafana Labs]: https://github.com/grafana/opentelemetry-demo
-[Guance]: https://github.com/GuanceCloud/opentelemetry-demo
-[Honeycomb.io]: https://github.com/honeycombio/opentelemetry-demo
-[Instana]: https://github.com/instana/opentelemetry-demo
-[Kloudfuse]: https://github.com/kloudfuse/opentelemetry-demo
-[Last9]: https://last9.io/docs/integrations-opentelemetry-demo/
-[Liatrio]: https://github.com/liatrio/opentelemetry-demo
-[Logz.io]: https://logz.io/learn/how-to-run-opentelemetry-demo-with-logz-io/
-[New Relic]: https://github.com/newrelic/opentelemetry-demo
-[OpenSearch]: https://github.com/opensearch-project/opentelemetry-demo
-[OpenObserve]: https://openobserve.ai/blog/opentelemetry-astronomy-shop-demo/
-[Oracle]: https://github.com/oracle-quickstart/oci-o11y-solutions/blob/main/knowledge-content/opentelemetry-demo
-[Parseable]: https://www.parseable.com/blog/open-telemetry-demo-with-parseable-a-complete-observability-setup
-[Sentry]: https://github.com/getsentry/opentelemetry-demo
-[ServiceNow Cloud Observability]: https://docs.lightstep.com/otel/quick-start-operator#send-data-from-the-opentelemetry-demo
-[SigNoz]: https://signoz.io/blog/opentelemetry-demo/
-[Splunk]: https://github.com/signalfx/opentelemetry-demo
-[Sumo Logic]: https://www.sumologic.com/blog/common-opentelemetry-demo-application/
-[TelemetryHub]: https://github.com/TelemetryHub/opentelemetry-demo/tree/telemetryhub-backend
-[Teletrace]: https://github.com/teletrace/opentelemetry-demo
-[Tinybird]: https://github.com/tinybirdco/opentelemetry-demo
-[Tracetest]: https://github.com/kubeshop/opentelemetry-demo
-[Uptrace]: https://github.com/uptrace/uptrace/tree/master/example/opentelemetry-demo
-[VictoriaMetrics]: https://github.com/VictoriaMetrics-Community/opentelemetry-demo
+**Location:** `infra/postgres-chaos/`
+
+| Component | Purpose |
+|-----------|---------|
+| `postgres-chaos-scenarios.sh` | Interactive script to run DB chaos scenarios |
+| `docs/` | Additional PostgreSQL chaos documentation |
+
+**Scenarios supported:**
+- Table locks (10-minute holds)
+- Connection exhaustion
+- Slow queries
+- Combined failure modes
+
+**Upstream equivalent:** None
+
+---
+
+### Documentation Simplification
+
+**Changed:** Streamlined documentation to remove duplication and point to upstream
+
+| File | Before | After | Change |
+|------|--------|-------|--------|
+| `README.md` | 171 lines | 35 lines (+appendix) | Points to upstream, focuses on fork-specific features |
+| `CONTRIBUTING.md` | 313 lines | 18 lines | Points to upstream for main contributions |
+| `infra/README.md` | 332 lines | 49 lines | Quick start only, detailed guides separate |
+| `chaos-scenarios/README.md` | N/A | 58 lines | New consolidated index |
+
+**Philosophy:** Single source of truth - point to upstream for general docs, maintain fork-specific content locally
+
+**Upstream equivalent:** Full documentation maintained locally (171-line README, 313-line CONTRIBUTING, etc.)
+
+---
+
+### Custom Scripts & Helpers
+
+**Added:** Utility scripts for deployment and testing
+
+| Script | Purpose |
+|--------|---------|
+| `infra/install-with-persistence.sh` | One-command Kubernetes install with persistence |
+| `infra/postgres-chaos/postgres-chaos-scenarios.sh` | Interactive chaos scenario runner |
+
+**Upstream equivalent:** Manual Helm commands, no chaos testing infrastructure
+
+---
+
+### Monitoring & Observability
+
+**Added:** 17 production-ready Honeycomb alerts + 3 SLO recommendations
+
+**Alert categories:**
+- Memory & resource exhaustion (5 alerts)
+- Database performance (4 alerts)
+- Application crashes (3 alerts)
+- DNS failures (2 alerts)
+- Rate limiting (2 alerts)
+- Disk growth (1 alert)
+
+**SLO recommendations:**
+- Service availability (99.9% success rate)
+- P95 latency (<500ms)
+- Pod stability (<3 restarts/day)
+
+**Upstream equivalent:** Example queries only, no production-ready alert configurations
+
+---
+
+### Configuration Defaults
+
+**Changed:** Default configurations for Honeycomb integration
+
+| Configuration | Fork Default | Upstream Default |
+|--------------|--------------|------------------|
+| Observability backend | Honeycomb (configurable) | Jaeger, Prometheus, Grafana |
+| PostgreSQL storage | Persistent (2GB PVC) | Ephemeral |
+| PostgreSQL memory | 300Mi (configurable) | Default Helm values |
+| OTel Collector | Sidecar for PostgreSQL | Centralized only |
+
+---
+
+### File Organization
+
+**Added:** New directory structure for chaos scenarios
+
+```
+chaos-scenarios/           (New in fork)
+├── README.md
+├── MEMORY-CHAOS.md
+├── DATABASE-CHAOS.md
+├── OBSERVABILITY-PATTERNS.md
+├── frontend-flood-rate-limiting.md
+├── filesystem-growth-crash-simple.md
+└── istiod-crash-restart.md
+
+infra/postgres-chaos/      (New in fork)
+├── postgres-chaos-scenarios.sh
+└── docs/
+```
+
+**Upstream equivalent:** No chaos-scenarios directory
+
+---
+
+### Removed Files
+
+**Deleted from upstream:** Duplicate/legacy documentation files
+
+- Removed WHY-* troubleshooting files (5 files) - consolidated into scenario guides
+- Removed duplicate chaos index (ChaosTesting.md) - consolidated into README.md
+- Archived old memory/alert docs to `infra/docs/archive/`
+
+**Upstream equivalent:** Files present but may have different organization
+
+---
+
+### Key Differences Summary
+
+| Aspect | This Fork | Upstream |
+|--------|-----------|----------|
+| **Chaos Engineering** | 7 comprehensive guides, 17 alerts | None |
+| **PostgreSQL** | Persistent storage, sidecar metrics | Ephemeral, basic setup |
+| **Observability Backend** | Honeycomb-focused | Jaeger/Prometheus/Grafana |
+| **Documentation** | Streamlined, points to upstream | Full local docs |
+| **Deployment** | One-command installer | Manual Helm |
+| **Testing Infrastructure** | Database chaos scripts | None |
+| **Alerts & SLOs** | 17 production-ready alerts, 3 SLOs | Example queries only |
+| **Total Chaos Docs** | ~3,143 lines across 7 files | 0 lines |
+
+---
+
+### Maintenance Notes
+
+**Syncing with upstream:**
+- Core application code should be synced from upstream regularly
+- Fork-specific content in `chaos-scenarios/` and `infra/` maintained separately
+- Documentation simplified to minimize merge conflicts
+
+**Fork-specific maintenance:**
+- Chaos scenarios tested against each upstream release
+- Alerts updated as new observability features are added
+- Infrastructure configs verified with upstream Helm chart updates
+
+---
+
+**Last Updated:** 2025-11-19
+**Upstream Version:** Latest as of fork date
+**Fork Focus:** Chaos engineering, production observability, Honeycomb integration

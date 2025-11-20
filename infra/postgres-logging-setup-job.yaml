@@ -1,0 +1,105 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: postgres-logging-setup
+  namespace: otel-demo
+spec:
+  ttlSecondsAfterFinished: 300  # Clean up 5 minutes after completion
+  backoffLimit: 5
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: setup-logging
+          image: postgres:17
+          env:
+            - name: PGHOST
+              value: "postgresql"
+            - name: PGPORT
+              value: "5432"
+            - name: PGUSER
+              value: "root"
+            - name: PGPASSWORD
+              value: "otel"
+            - name: PGDATABASE
+              value: "otel"
+          command:
+            - /bin/bash
+            - -c
+            - |
+              set -e
+
+              echo "============================================"
+              echo "PostgreSQL Logging Configuration Setup"
+              echo "============================================"
+
+              # Wait for PostgreSQL to be ready
+              echo "Waiting for PostgreSQL to be ready..."
+              until psql -c "SELECT 1" >/dev/null 2>&1; do
+                echo "PostgreSQL is unavailable - sleeping"
+                sleep 2
+              done
+
+              echo "✓ PostgreSQL is ready"
+              echo ""
+
+              # Configure logging via ALTER SYSTEM
+              echo "Configuring PostgreSQL logging settings..."
+
+              psql << 'EOSQL'
+              -- Enable logging to file
+              ALTER SYSTEM SET logging_collector = 'on';
+              ALTER SYSTEM SET log_destination = 'stderr,csvlog';
+              ALTER SYSTEM SET log_directory = '/var/log/postgresql';
+              ALTER SYSTEM SET log_filename = 'postgresql-%Y-%m-%d_%H%M%S.log';
+              ALTER SYSTEM SET log_file_mode = '0644';
+              ALTER SYSTEM SET log_rotation_age = '1d';
+              ALTER SYSTEM SET log_rotation_size = '100MB';
+              ALTER SYSTEM SET log_truncate_on_rotation = 'off';
+
+              -- Lock and concurrency logging (KEY for table lock detection)
+              ALTER SYSTEM SET log_lock_waits = 'on';
+              ALTER SYSTEM SET deadlock_timeout = '1s';
+
+              -- Performance logging
+              ALTER SYSTEM SET log_min_duration_statement = '1000';
+              ALTER SYSTEM SET log_duration = 'off';
+              ALTER SYSTEM SET log_statement = 'none';
+
+              -- Enhanced log format
+              ALTER SYSTEM SET log_line_prefix = '%t [%p] %u@%d ';
+              ALTER SYSTEM SET log_timezone = 'UTC';
+
+              -- Connection logging
+              ALTER SYSTEM SET log_connections = 'on';
+              ALTER SYSTEM SET log_disconnections = 'on';
+
+              -- Checkpoint logging
+              ALTER SYSTEM SET log_checkpoints = 'on';
+
+              -- Error logging
+              ALTER SYSTEM SET log_error_verbosity = 'default';
+
+              -- Reload configuration
+              SELECT pg_reload_conf();
+              EOSQL
+
+              echo ""
+              echo "✓ Logging configuration applied"
+              echo ""
+
+              # Verify settings
+              echo "Verifying configuration..."
+              psql -c "SHOW logging_collector;"
+              psql -c "SHOW log_lock_waits;"
+              psql -c "SHOW log_directory;"
+
+              echo ""
+              echo "============================================"
+              echo "PostgreSQL logging setup complete!"
+              echo "Settings have been applied and saved to:"
+              echo "  /var/lib/postgresql/data/postgresql.auto.conf"
+              echo ""
+              echo "PostgreSQL will use these settings after restart"
+              echo "Or you can reload now with: SELECT pg_reload_conf();"
+              echo "============================================"

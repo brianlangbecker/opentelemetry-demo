@@ -14,9 +14,9 @@ data:
         include_file_path: true
         start_at: end
         operators:
-          # Parse PostgreSQL log format: "2025-11-15 03:30:38.161 UTC [706718] ERROR: ..."
+          # Parse PostgreSQL log format: "2025-11-15 03:58:55 UTC [138] root@otel LOG:  connection received"
           - type: regex_parser
-            regex: '^(?P<timestamp>[\d-]+ [\d:.]+) (?P<timezone>\w+) \[(?P<pid>\d+)\]( (?P<user>\w+)@(?P<database>\w+))? (?P<level>\w+):\s+(?P<message>.*)'
+            regex: '^(?P<timestamp>[\d-]+ [\d:.]+) (?P<timezone>\w+) \[(?P<pid>\d+)\] (?P<user>[\w\[\]]+)@(?P<database>[\w\[\]]+) (?P<level>\w+):\s+(?P<message>.*)'
             timestamp:
               parse_from: attributes.timestamp
               layout: '%Y-%m-%d %H:%M:%S.%L'
